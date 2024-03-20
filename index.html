@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>CellWatch Demo Dashboard</title>
+    <script src="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.js"></script>
+    <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.min.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <script src='https://unpkg.com/@turf/turf@6/turf.min.js'></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v3.2.0/mapbox-gl.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-geocoder/v5.0.0/mapbox-gl-geocoder.css" type="text/css">
+    <link href="./style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="map"></div>
+    <form id="token-form">
+      <label>
+        Mapbox Access Token
+        <input id="mapbox-token" type="text" />
+      </label>
+      <label>
+        Supabase Access Token
+        <input id="supabase-token" type="text" />
+      </label>
+      <button role="submit" onclick="handleSubmit(event)">Submit</button>
+    </form>
+    <script src="./LegendControl.js"></script>
+    <script src="./FilterControl.js"></script>
+    <script src="./measurement.js"></script>
+    <script src="./map.js"></script>
+    <script src="./form.js"></script>
+  </body>
+</html>
