@@ -56,4 +56,10 @@ class FilterControl {
 
     this.source.setData(this.collection)
   }
+
+  updateCollection(collection) {
+    this.collection = collection
+    this.features = collection.features
+    this.filter()
+  }
 }

@@ -63,12 +63,27 @@ function setupMap() {
         }
       })
 
-      map.addControl(new FilterControl(
+      const filterControl = new FilterControl(
         collection,
         map.getSource('measurements'),
         {name: 'Type', field: 'type'},
         {name: 'Provider', field: 'provider'},
-      ), 'top-right')
+      )
+
+      map.addControl(new BtnControl([{
+        text: 'Refresh Measurements',
+        onClick: async () => {
+          const collection = {
+            type: 'FeatureCollection',
+            features: (await fetchMeasurements()).map(measurementToFeature)
+          }
+
+          map.getSource('measurements').setData(collection)
+          filterControl.updateCollection(collection)
+        },
+      }]), 'top-right')
+
+      map.addControl(filterControl, 'top-right')
     })
 
 
