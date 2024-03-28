@@ -49,3 +49,8 @@ body {
 .filter-control select {
   margin-inline-start: 0.25rem;
 }
+
+.popup-measurements {
+  max-height: 20rem;
+  overflow: auto;
+}

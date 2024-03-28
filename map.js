@@ -73,10 +73,18 @@ function setupMap() {
 
 
     map.on('click', 'measurements', e => {
-      const m = JSON.parse(e.features[0].properties.measurement)
-      console.log('clicked!', m)
+      const ms = e.features
+        .map(f => JSON.parse(f.properties.measurement))
+        .sort((a, b) => (new Date(b.timestamp)) - (new Date(a.timestamp)))
+
+      console.log('clicked!', ms)
+
+      const html = ms
+        .map((m, i) => `<strong>Measurement ${i+1}/${ms.length}</strong><br />${measurementToHtml(m)}`)
+        .join('<hr />')
+
       new mapboxgl.Popup()
-        .setHTML(measurementToHtml(m))
+        .setHTML(`<div class="popup-measurements">${html}</div>`)
         .setLngLat(e.features[0].geometry.coordinates)
         .addTo(map)
     })
