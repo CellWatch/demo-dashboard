@@ -1,6 +1,7 @@
 export default class BtnControl {
   constructor(btns) {
-    this.btns = btns
+    this.btns = Array.isArray(btns) ? btns : []
+    this.container = null
   }
 
   onAdd(_map) {
@@ -10,15 +11,20 @@ export default class BtnControl {
     for (const btn of this.btns) {
       const b = document.createElement('button')
       b.type = 'button'
-      b.textContent = btn.text
-      b.addEventListener('click', btn.onClick)
+      b.textContent = btn.text ?? 'Button'
+      b.title = btn.title ?? btn.text ?? ''
+      if (typeof btn.onClick === 'function') {
+        b.addEventListener('click', btn.onClick)
+      }
       this.container.appendChild(b)
     }
-
     return this.container
   }
 
   onRemove() {
-    this.container.parentNode.removeChild(this.container)
+    if (this.container?.parentNode) {
+      this.container.parentNode.removeChild(this.container)
+    }
+    this.container = null
   }
 }

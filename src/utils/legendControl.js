@@ -1,56 +1,67 @@
 export default class LegendControl {
   constructor(minSaturation, ...scales) {
-    this.minSaturation = minSaturation
-    this.scales = scales
+    this.minSaturation = Number.isFinite(minSaturation) ? minSaturation : 25
+    this.scales = scales || [] // [{ name, minLabel, maxLabel, hue, invert }]
+    this.container = null
   }
 
   onAdd(_map) {
     this.container = document.createElement('div')
     this.container.className = 'mapboxgl-ctrl mapboxgl-ctrl-group legend-control'
 
-    for (const scale of this.scales) {
-      this.addScale(scale.name, scale.minLabel, scale.maxLabel, scale.hue, scale.invert)
+    for (const s of this.scales) {
+      this._addScale(
+        s.name ?? 'Scale',
+        s.minLabel ?? 'Low',
+        s.maxLabel ?? 'High',
+        Number.isFinite(s.hue) ? s.hue : 200,
+        !!s.invert
+      )
     }
-
     return this.container
   }
 
   onRemove() {
-    this.container.parentNode.removeChild(this.container)
+    if (this.container?.parentNode) {
+      this.container.parentNode.removeChild(this.container)
+    }
+    this.container = null
   }
 
-  addScale(name, min, max, hue, invert) {
-    const container = document.createElement('div')
-    container.className = 'legend-control-scale'
+  _addScale(name, min, max, hue, invert) {
+    const wrap = document.createElement('div')
+    wrap.className = 'legend-control-scale'
 
-    const title = document.createElement('strong')
+    const title = document.createElement('div')
     title.textContent = name
-    container.appendChild(title)
+    title.className = 'legend-control-title'
+    wrap.appendChild(title)
 
     const colors = document.createElement('div')
     colors.className = 'legend-control-colors'
-    colors.style.setProperty(
-      'background',
-      `linear-gradient(to right, hsl(${hue}, ${this.minSaturation}%, 50%), hsl(${hue}, 100%, 50%))`
-    )
-    container.appendChild(colors)
+    const start = `hsl(${hue}, ${this.minSaturation}%, 50%)`
+    const end   = `hsl(${hue}, 100%, 50%)`
+    colors.style.background = invert
+      ? `linear-gradient(to right, ${end}, ${start})`
+      : `linear-gradient(to right, ${start}, ${end})`
+    wrap.appendChild(colors)
 
     const labels = document.createElement('div')
     labels.className = 'legend-control-labels'
-    const minLabel = document.createElement('span')
-    minLabel.textContent = `${min}`
-    const maxLabel = document.createElement('span')
-    maxLabel.textContent = `${max}`
+    const minSpan = document.createElement('span')
+    const maxSpan = document.createElement('span')
+    minSpan.textContent = String(min)
+    maxSpan.textContent = String(max)
 
     if (invert) {
-      labels.appendChild(maxLabel)
-      labels.appendChild(minLabel)
+      labels.appendChild(maxSpan)
+      labels.appendChild(minSpan)
     } else {
-      labels.appendChild(minLabel)
-      labels.appendChild(maxLabel)
+      labels.appendChild(minSpan)
+      labels.appendChild(maxSpan)
     }
+    wrap.appendChild(labels)
 
-    container.appendChild(labels)
-    this.container.appendChild(container)
+    this.container.appendChild(wrap)
   }
 }

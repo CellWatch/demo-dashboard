@@ -41,3 +41,9 @@ Thumbs.db
 .next/
 out/
 coverage/
+
+# Supabase
+/supabase
+
+# VSCode
+/.vscode

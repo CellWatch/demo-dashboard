@@ -1,255 +1,331 @@
-import * as h3 from 'h3-js'
+// src/utils/h3layers.js
+import * as h3 from 'h3-js'; // namespace import to support v3/v4 APIs
 
-const HEX_RES = 8
-const INNER_RES = 9
-const HEX_MAXZOOM = 12
+// Max how many hexes we'll render at once (keeps memory in check)
+const MAX_CELLS = 6000;
 
-let map
-let mode = 'dots'
-let measurements = []
-let hexAgg
-let innerActive = null
+// Outline-only rendering
+const HEX_MAXZOOM = 22;
+
+let map;
+let mode = 'dots';
+let measurements = [];
+let gridCells = new Set(); // viewport hexes
+let countsForCenters = new Map(); // idx -> count for label
+
+// click listener registered by HexMap
+let hexClickCb = null;
+
+export function isReady() {
+  return !!map;
+}
 
 export function initH3Layers(m, initialMeasurements) {
-  map = m
-  measurements = initialMeasurements
-  hexAgg = aggregateToHex(measurements, HEX_RES)
-  addSources()
-  addLayers()
-  bindEvents()
-  setMode('dots')
+  map = m;
+  measurements = initialMeasurements || [];
+
+  addSources();
+  addLayers();
+  bindEvents();
+
+  updateViewportGrid();
+  paintHexesFromGrid(); // builds outlines + centers (with default count=1)
+  paintDots();
+
+  // default; HexMap should override based on slider immediately after init
+  setMode('dots');
 }
 
 export function setMode(next) {
-  mode = next
-  const dotsVisible = mode === 'dots' ? 'visible' : 'none'
-  const hexVisible = mode === 'hex' ? 'visible' : 'none'
-  setVis('dots-circle', dotsVisible)
-  setVis('hex-fill', hexVisible)
-  setVis('hex-center-point', hexVisible)
-  setVis('hex-count', hexVisible)
-  const innerVis = mode === 'hex' && innerActive ? 'visible' : 'none'
-  setVis('inner-hex-fill', innerVis)
-  setVis('inner-hex-center-point', innerVis)
-  setVis('inner-hex-count', innerVis)
-  if (mode === 'dots') clearSidebar()
+  mode = next;
+  const dotsVis = mode === 'dots' ? 'visible' : 'none';
+  const hexVis  = mode === 'hex'  ? 'visible' : 'none';
+
+  setVis('dots-circle', dotsVis);
+
+  // hex outline + centers family
+  setVis('hex-outline', hexVis);
+  setVis('hex-count-hit', hexVis);
+  setVis('hex-count-bubble', hexVis);
+  setVis('hex-count-label', hexVis);
 }
 
 export function setMeasurements(nextPoints) {
-  measurements = nextPoints
-  hexAgg = aggregateToHex(measurements, HEX_RES)
-  setGeoJSON('dots', dotsGeoJSON(measurements))
-  setGeoJSON('hexes', hexGeoJSON(hexAgg))
-  setGeoJSON('hex-centers', hexCentersGeoJSON(hexAgg))
-  innerActive = null
-  setGeoJSON('inner-hexes', emptyFC())
-  setGeoJSON('inner-hex-centers', emptyFC())
-  setMode(mode)
-  clearSidebar()
+  if (!map) return;
+  measurements = nextPoints || [];
+  paintDots();
 }
 
-function aggregateToHex(points, res) {
-  const m = new Map()
-  for (const p of points) {
-    const i = h3.geoToH3(p.lat, p.lon, res)
-    const v = m.get(i)
-    if (v) { v.count++; v.points.push(p) } else { m.set(i, {count:1, points:[p]}) }
-  }
-  return m
+/**
+ * Provide per-hex counts for the current grid:
+ * - `counts` can be a Map<string, number> or a plain object { idx: count }
+ */
+export function setHexCounts(counts) {
+  if (!map) return;
+  // normalize to Map
+  const m = counts instanceof Map ? counts : new Map(Object.entries(counts || {}));
+  countsForCenters = m;
+  // repaint centers (labels) using the latest counts
+  paintCentersOnly();
 }
 
-function hexGeoJSON(agg) {
-  const features = []
-  for (const [hex, v] of agg.entries()) {
-    const coords = h3.h3ToGeoBoundary(hex, true).map(([lat, lon]) => [lon, lat])
-    features.push({
-      type: 'Feature',
-      geometry: { type: 'Polygon', coordinates: [[...coords, coords[0]]]},
-      properties: { hex, count: v.count }
-    })
-  }
-  return { type: 'FeatureCollection', features }
+export function onHexClick(cb) {
+  hexClickCb = typeof cb === 'function' ? cb : null;
 }
 
-function hexCentersGeoJSON(agg) {
-  const features = []
-  for (const [hex, v] of agg.entries()) {
-    const [lat, lon] = h3.h3ToGeo(hex)
-    features.push({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [lon, lat]},
-      properties: { hex, count: v.count }
-    })
-  }
-  return { type: 'FeatureCollection', features }
-}
-
-function dotsGeoJSON(points) {
-  return {
-    type: 'FeatureCollection',
-    features: points.map(p => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [p.lon, p.lat]},
-      properties: {}
-    }))
-  }
-}
-
-function emptyFC() {
-  return { type: 'FeatureCollection', features: [] }
-}
+/* ---------------- map + layers ---------------- */
 
 function addSources() {
-  map.addSource('dots', { type:'geojson', data: dotsGeoJSON(measurements) })
-  map.addSource('hexes', { type:'geojson', data: hexGeoJSON(hexAgg) })
-  map.addSource('hex-centers', { type:'geojson', data: hexCentersGeoJSON(hexAgg) })
-  map.addSource('inner-hexes', { type:'geojson', data: emptyFC() })
-  map.addSource('inner-hex-centers', { type:'geojson', data: emptyFC() })
+  map.addSource('dots',        { type: 'geojson', data: emptyFC() });
+  map.addSource('hexes',       { type: 'geojson', data: emptyFC() }); // polygon source; outline reads from this
+  map.addSource('hex-centers', { type: 'geojson', data: emptyFC() }); // centers for bubbles/labels
 }
 
 function addLayers() {
+  // Points (only in "dots" mode)
   map.addLayer({
-    id:'dots-circle',
-    type:'circle',
-    source:'dots',
-    paint:{'circle-radius':4,'circle-opacity':0.9}
-  })
+    id: 'dots-circle',
+    type: 'circle',
+    source: 'dots',
+    paint: {
+      'circle-color': '#374151',
+      'circle-radius': 4,
+      'circle-opacity': 0.9,
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 1
+    },
+  });
+
+  // Hex OUTLINES (line layer over polygon source)
   map.addLayer({
-    id:'hex-fill',
-    type:'fill',
-    source:'hexes',
+    id: 'hex-outline',
+    type: 'line',
+    source: 'hexes',
     maxzoom: HEX_MAXZOOM,
-    paint:{
-      'fill-color':['case',['>', ['get','count'], 0], '#4B7BEC', '#00000000'],
-      'fill-opacity':['interpolate',['linear'],['zoom'],6,0.35, HEX_MAXZOOM,0.2],
-      'fill-outline-color':'#34495e'
-    }
-  })
+    paint: {
+      'line-color': '#2B6CB0', // blue outline
+      'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.6, 10, 1.5, 16, 2.0, 22, 2.5],
+      'line-opacity': 1.0,
+    },
+  });
+
+  // --- HEX CENTERS (bubbles + label + big almost-invisible hit layer) ---
+
+  // Large hit layer. IMPORTANT: opacity is 0.001 (not 0) so it renders & is clickable.
   map.addLayer({
-    id:'hex-center-point',
-    type:'circle',
-    source:'hex-centers',
-    maxzoom: HEX_MAXZOOM,
-    paint:{'circle-radius':3,'circle-color':'#ffffff','circle-stroke-color':'#2c3e50','circle-stroke-width':1}
-  })
+    id: 'hex-count-hit',
+    type: 'circle',
+    source: 'hex-centers',
+    paint: {
+      'circle-radius': 28,
+      'circle-opacity': 0.001,
+      'circle-stroke-width': 0,
+    },
+  });
+
+  // Visible bubble
   map.addLayer({
-    id:'hex-count',
-    type:'symbol',
-    source:'hex-centers',
-    maxzoom: HEX_MAXZOOM,
-    layout:{'text-field':['to-string',['get','count']],'text-size':12,'text-offset':[0,1.1]},
-    paint:{'text-halo-color':'#ffffff','text-halo-width':1}
-  })
+    id: 'hex-count-bubble',
+    type: 'circle',
+    source: 'hex-centers',
+    paint: {
+      'circle-color': '#065f46',
+      'circle-radius': 11,
+      'circle-opacity': 0.95,
+      'circle-stroke-color': '#ffffff',
+      'circle-stroke-width': 1,
+    },
+  });
+
+  // Label
   map.addLayer({
-    id:'inner-hex-fill',
-    type:'fill',
-    source:'inner-hexes',
-    paint:{
-      'fill-color':'#20BF6B',
-      'fill-opacity':['interpolate',['linear'],['zoom'],10,0.35,16,0.15],
-      'fill-outline-color':'#0B5345'
-    }
-  })
-  map.addLayer({
-    id:'inner-hex-center-point',
-    type:'circle',
-    source:'inner-hex-centers',
-    paint:{'circle-radius':3,'circle-color':'#ffffff','circle-stroke-color':'#145A32','circle-stroke-width':1}
-  })
-  map.addLayer({
-    id:'inner-hex-count',
-    type:'symbol',
-    source:'inner-hex-centers',
-    layout:{'text-field':['to-string',['get','count']],'text-size':12,'text-offset':[0,1.1]},
-    paint:{'text-halo-color':'#ffffff','text-halo-width':1}
-  })
+    id: 'hex-count-label',
+    type: 'symbol',
+    source: 'hex-centers',
+    layout: {
+      'text-field': ['to-string', ['get', 'count']],
+      'text-size': 12,
+      'text-allow-overlap': true,
+      'text-font': ['Inter Regular', 'Arial Unicode MS Regular'],
+    },
+    paint: { 'text-color': '#FFFFFF' },
+  });
+
+  // By default, hide hex family until mode switched
+  setVis('hex-outline', 'none');
+  setVis('hex-count-hit', 'none');
+  setVis('hex-count-bubble', 'none');
+  setVis('hex-count-label', 'none');
 }
 
 function bindEvents() {
-  map.on('click','hex-fill', e => {
-    if (!e.features?.length) return
-    const f = e.features[0]
-    const parent = f.properties?.hex
-    innerActive = buildInnerHexes(parent)
-    setGeoJSON('inner-hexes', {type:'FeatureCollection', features: innerActive.features})
-    setGeoJSON('inner-hex-centers', innerCenters(innerActive.features))
-    setMode('hex')
-    clearSidebar()
-  })
-  map.on('click','inner-hex-fill', e => {
-    if (!e.features?.length) return
-    const hex = e.features[0].properties?.hex
-    const items = measurements.filter(m => h3.geoToH3(m.lat, m.lon, INNER_RES) === hex)
-    renderSidebar(items)
-  })
+  const refresh = () => {
+    updateViewportGrid();
+    paintHexesFromGrid();
+  };
+  map.on('moveend', refresh);
+  map.on('zoomend', refresh);
+
+  // Clicks (use the big hit first, but support all three)
+  const handleHexClick = (e) => {
+    const f = e?.features?.[0];
+    const idx = f?.properties?.idx; // unified property name
+    if (idx && hexClickCb) hexClickCb(idx);
+  };
+
+  map.on('click', 'hex-count-hit', handleHexClick);
+  map.on('click', 'hex-count-bubble', handleHexClick);
+  map.on('click', 'hex-count-label', handleHexClick);
+
+  // Cursor
+  map.on('mouseenter', 'hex-count-hit', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'hex-count-hit', () => { map.getCanvas().style.cursor = ''; });
 }
 
+/* ---------------- viewport grid (adaptive) ---------------- */
+
+function updateViewportGrid() {
+  const b = map.getBounds();
+  const zoom = map.getZoom();
+
+  // Adaptive H3 resolution
+  let res = zoomToResolution(zoom);
+
+  // Build polygon loops for the current viewport
+  const west  = b.getWest();
+  const east  = b.getEast();
+  const south = b.getSouth();
+  const north = b.getNorth();
+
+  const loops = west <= east
+    ? [makeLoop(south, west, north, east)]
+    : [ makeLoop(south, west, north, 180), makeLoop(south, -180, north, east) ];
+
+  // Try to generate cells; if too many, coarsen (decrease resolution)
+  let cells = [];
+  let attempts = 0;
+  while (attempts < 6) {
+    cells = loops.flatMap(loop => toCells([loop], res));
+    if (cells.length <= MAX_CELLS) break;
+    res = Math.max(0, res - 1); // coarser
+    attempts++;
+  }
+
+  gridCells = new Set(cells);
+}
+
+function zoomToResolution(zoom) {
+  if (zoom < 3)   return 3;
+  if (zoom < 5)   return 4;
+  if (zoom < 6.5) return 5;
+  if (zoom < 8)   return 6;
+  if (zoom < 10)  return 7;
+  if (zoom < 12)  return 8;
+  if (zoom < 13.5)return 9;
+  return 10;
+}
+
+function makeLoop(south, west, north, east) {
+  // H3 expects [lat, lng]
+  return [
+    [south, west],
+    [north, west],
+    [north, east],
+    [south, east],
+    [south, west],
+  ];
+}
+
+/**
+ * Cross-version helper:
+ * - h3-js v4: polygonToCells(polygon, res)
+ * - h3-js v3: polyfill(polygon, res)
+ */
+function toCells(polygonLoops, res) {
+  try {
+    if (typeof h3.polygonToCells === 'function') {
+      return h3.polygonToCells(polygonLoops, res) || [];
+    }
+    if (typeof h3.polyfill === 'function') {
+      return h3.polyfill(polygonLoops, res) || [];
+    }
+  } catch (e) {
+    console.warn('[h3layers] toCells error (will coarsen or fallback):', e);
+  }
+  return [];
+}
+
+/* ---------------- painting ---------------- */
+
+function paintHexesFromGrid() {
+  // OUTLINE polygons
+  const outlineFeatures = [];
+  for (const idx of gridCells) {
+    const ringLL = h3.cellToBoundary(idx, true);         // [lat, lng]
+    const ringXY = ringLL.map(([lat, lon]) => [lon, lat]); // [lng, lat]
+    outlineFeatures.push({
+      type: 'Feature',
+      geometry: { type: 'Polygon', coordinates: [[...ringXY, ringXY[0]]] },
+      properties: { idx },
+    });
+  }
+  setGeoJSON('hexes', { type: 'FeatureCollection', features: outlineFeatures });
+
+  // CENTERS (with counts if provided)
+  paintCentersOnly();
+}
+
+function paintCentersOnly() {
+  const centerFeatures = [];
+  for (const idx of gridCells) {
+    const [latC, lngC] = h3.cellToLatLng(idx);
+    const count = countsForCenters.get(idx) ?? 1;
+    centerFeatures.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [lngC, latC] },
+      properties: { idx, count },
+    });
+  }
+
+  // Fallback: draw one at map center if empty (debug)
+  if (centerFeatures.length === 0) {
+    try {
+      const c = map.getCenter();
+      const res = zoomToResolution(map.getZoom());
+      const idx = h3.latLngToCell(c.lat, c.lng, res);
+      centerFeatures.push({
+        type: 'Feature',
+        geometry: { type: 'Point', coordinates: [c.lng, c.lat] },
+        properties: { idx, count: 1, _debug: true },
+      });
+      console.warn('[h3layers] grid empty; drew center debug hex:', idx);
+    } catch {}
+  }
+
+  setGeoJSON('hex-centers', { type: 'FeatureCollection', features: centerFeatures });
+}
+
+function paintDots() {
+  setGeoJSON('dots', {
+    type: 'FeatureCollection',
+    features: (measurements || []).map(p => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
+      properties: { id: p.id, type: p.type, provider: p.provider },
+    })),
+  });
+}
+
+/* ---------------- utils ---------------- */
+
 function setGeoJSON(sourceId, fc) {
-  const s = map.getSource(sourceId)
-  s.setData(fc)
+  const s = map.getSource(sourceId);
+  if (s && typeof s.setData === 'function') s.setData(fc);
 }
 
 function setVis(id, v) {
-  if (!map.getLayer(id)) return
-  map.setLayoutProperty(id,'visibility', v)
+  if (!map.getLayer(id)) return;
+  map.setLayoutProperty(id, 'visibility', v);
 }
 
-function buildInnerHexes(parent) {
-  const children = h3.h3ToChildren(parent, INNER_RES)
-  const pc = h3.h3ToGeo(parent)
-  const centerChild = children.map(c => ({c, d: dist(pc, h3.h3ToGeo(c))})).sort((a,b)=>a.d-b.d)[0].c
-  const ring = children.filter(c => c !== centerChild)
-  const features = []
-  for (const ch of ring) {
-    let count = 0
-    for (const m of measurements) if (h3.geoToH3(m.lat, m.lon, INNER_RES) === ch) count++
-    const coords = h3.h3ToGeoBoundary(ch, true).map(([lat, lon]) => [lon, lat])
-    features.push({
-      type:'Feature',
-      geometry:{type:'Polygon', coordinates:[[...coords, coords[0]]]},
-      properties:{hex: ch, count}
-    })
-  }
-  return {parent, features}
-}
-
-function innerCenters(features) {
-  return {
-    type:'FeatureCollection',
-    features: features.map(f => {
-      const [lat, lon] = h3.h3ToGeo(f.properties.hex)
-      return {type:'Feature', geometry:{type:'Point', coordinates:[lon, lat]}, properties:{hex:f.properties.hex, count:f.properties.count}}
-    })
-  }
-}
-
-function dist(a,b) {
-  const r=x=>x*Math.PI/180
-  const R=6371
-  const dLat=r(b[0]-a[0])
-  const dLon=r(b[1]-a[1])
-  const s1=Math.sin(dLat/2)**2
-  const s2=Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(dLon/2)**2
-  return 2*R*Math.asin(Math.sqrt(s1+s2))
-}
-
-function renderSidebar(items) {
-  const el = document.getElementById('sidebar')
-  if (!el) return
-  el.innerHTML = ''
-  const head = document.createElement('div')
-  head.textContent = `Measurements: ${items.length}`
-  el.appendChild(head)
-  const list = document.createElement('ul')
-  items.forEach(it => {
-    const li = document.createElement('li')
-    li.textContent = JSON.stringify(it)
-    list.appendChild(li)
-  })
-  el.appendChild(list)
-}
-
-function clearSidebar() {
-  const el = document.getElementById('sidebar')
-  if (el) el.innerHTML = ''
-}
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
