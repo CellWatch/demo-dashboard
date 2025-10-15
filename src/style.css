@@ -92,7 +92,7 @@ body {
   border-radius: 15px;
 }
 
-/* Filter panel */
+/* Filter panel (legacy left panel styles) */
 .filter-control {
   position: absolute;
   top: 4rem;
@@ -211,7 +211,7 @@ hr {
   margin-top: 0;
 }
 
-/* ===== Top-right Filters panel ===== */
+/* ===== Top-right Filters panel (current) ===== */
 .filters-panel {
   position: absolute;
   top: 1rem;
@@ -223,42 +223,122 @@ hr {
   border: 1px solid #000;        /* black outline to match request */
   border-radius: 6px;
   padding: 10px 12px 12px;
-  z-index: 25;                   /* above map, under control bar if needed */
+  z-index: 25;
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
 }
 
+/* Bigger + bolder main title */
 .filters-header {
-  font-weight: 700;
-  font-size: 16px;
-  text-align: left;              /* left-aligned header */
-  margin-bottom: 8px;
+  font-weight: 800;
+  font-size: 18px;
+  text-align: left;
+  margin-bottom: 10px;
 }
 
-/* Gray cards with black outline inside the panel */
+/* Gray cards with black outline inside the panel (kept for any legacy use) */
 .filter-card {
-  background: #f3f4f6;           /* light gray */
-  border: 1px solid #000;        /* black outline */
+  background: #f3f4f6;
+  border: 1px solid #000;
   border-radius: 6px;
   padding: 10px;
   margin-bottom: 10px;
 }
-
 .filter-card-title {
   font-weight: 600;
   margin-bottom: 8px;
 }
 
-/* Segmented button group */
+/* Section container */
+.filter-subsection {
+  background: #f3f4f6;
+  border: 1px solid #000;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+/* Bigger + bolder subsection titles */
+.filter-subsection-title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+/* Spacing for inner groups */
+.filter-subsection .btn-group,
+.filter-subsection .checks,
+.filter-subsection .radios-vert,
+.filter-subsection .providers-list {
+  margin-top: 6px;
+}
+
+/* --- Input focus: remove dashed outlines and use a soft ring --- */
+.filters-panel input[type="checkbox"],
+.filters-panel input[type="radio"],
+.filters-panel input[type="text"],
+.filters-panel input[type="date"] {
+  outline: none;
+  box-shadow: none;
+}
+.filters-panel input[type="checkbox"]:focus,
+.filters-panel input[type="radio"]:focus,
+.filters-panel input[type="text"]:focus,
+.filters-panel input[type="date"]:focus,
+.filters-panel input[type="checkbox"]:focus-visible,
+.filters-panel input[type="radio"]:focus-visible,
+.filters-panel input[type="text"]:focus-visible,
+.filters-panel input[type="date"]:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+  border-radius: 6px;
+}
+
+/* --- Generic option rows --- */
+.check,
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #0f172a;
+  user-select: none;
+  cursor: pointer;
+}
+
+/* Providers list */
+.providers-list {
+  display: grid;
+  grid-auto-rows: minmax(28px, auto);
+  gap: 4px;
+
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+
+  max-height: 140px;
+  overflow-y: auto;
+}
+.provider-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+/* Muted helper text */
+.muted {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Segmented button group (kept if you use it elsewhere) */
 .segmented {
   display: flex;
   gap: 6px;
   flex-wrap: nowrap;
 }
-
-.segmented.wrap {
-  flex-wrap: wrap;
-}
-
+.segmented.wrap { flex-wrap: wrap; }
 .segmented button {
   flex: 1;
   padding: 6px 8px;
@@ -268,42 +348,68 @@ hr {
   border-radius: 6px;
   cursor: pointer;
 }
-
 .segmented button.selected {
   background: #111827;
   color: #ffffff;
   border-color: #111827;
 }
 
-/* Radio subgroup for All / Above / Below */
+/* ===== Sub-filter layout (All / Above / Below) ===== */
+
+/* Indent sub-filters to make relationship obvious */
 .subgroup {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px dashed #9ca3af;
+  margin-top: 8px;
+  margin-left: 18px;             /* indentation */
+  padding-left: 10px;
+  border-left: 2px solid #e5e7eb;/* subtle guide line */
+  /* removed: border-top: 1px dashed #9ca3af; */
 }
 
-.radio-row {
+/* Stack each option on its own line */
+.radios-vert {
   display: grid;
   gap: 8px;
 }
 
-.radio-row label {
-  display: flex;
+/* Each radio item can contain a header row + its own input area */
+.radio-line {
+  display: grid;
+  gap: 6px;
+}
+
+.radio-head {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
-.radio-row .with-input {
-  justify-content: space-between;
+/* Inline numeric input that sits under/with Above/Below */
+.inline-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 26px;             /* tab under radio label */
+}
+.inline-input input[type="text"] {
+  width: 90px;
+  height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.inline-input .suffix {
+  font-size: 12px;
+  color: #374151;
 }
 
+/* Legacy number-with-unit (kept for compatibility) */
 .number-with-unit {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin-left: 6px;
 }
-
 .number-with-unit input[type="number"] {
   width: 84px;
   padding: 4px 6px;
@@ -311,51 +417,23 @@ hr {
   border-radius: 6px;
   font-size: 13px;
 }
-
 .number-with-unit .unit {
   font-size: 12px;
   color: #374151;
 }
 
-/* Providers list */
-.providers-list {
-  display: grid;
-  grid-auto-rows: minmax(28px, auto);
-  gap: 4px;
-  max-height: 140px;
-  overflow-y: auto;
-  background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  padding: 6px;
-}
-
-.provider-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.muted {
-  font-size: 12px;
-  color: #6b7280;
-}
-
-/* Date row */
+/* Date range rows */
 .date-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-top: 8px;
 }
-
 .date-row label {
   display: grid;
   gap: 4px;
   font-size: 12px;
 }
-
 .date-row input[type="date"] {
   padding: 4px 6px;
   border: 1px solid #d1d5db;
@@ -364,24 +442,13 @@ hr {
   background: #fff;
 }
 
-
-.filter-subsection {
-  background: #f3f4f6;
-  border: 1px solid #000;
-  border-radius: 6px;
-  padding: 12px;
-  margin-bottom: 12px;
+.date-range {
+  display: grid;
+  gap: 8px;
+  margin-left: 26px;
 }
 
-.filter-subsection-title {
-  font-weight: 700;
-  font-size: 14px;
-  margin-bottom: 8px;
-}
-
-.filter-subsection .btn-group,
-.filter-subsection .checks,
-.filter-subsection .radios-vert,
-.filter-subsection .providers-list {
-  margin-top: 6px;
+.checks-vert {
+  display: grid;
+  gap: 6px;
 }

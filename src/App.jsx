@@ -32,6 +32,7 @@ function ModeSlider({ mode, setMode }) {
 export default function App() {
   const [mode, setMode] = useState('hex');
 
+  // ---- Data types (multi-select when "all" is false) ----
   const [typeFilters, setTypeFilters] = useState({
     all: true,
     upload:   { enabled: false, mode: 'all', threshold: '' },
@@ -39,22 +40,29 @@ export default function App() {
     latency:  { enabled: false, mode: 'all', threshold: '' },
   });
 
-  const [connTypes, setConnTypes] = useState(['4G', '5G']);
+  // ---- Connection Types (HARDCODED; default all ON) ----
+  const [connTypes, setConnTypes] = useState(['4G', '5G', 'Other']);
+
+  // ---- Providers (HARDCODED; default all ON) ----
   const [providers, setProviders] = useState(['AT&T', 'T-Mobile', 'Verizon', 'Other']);
 
-  const [dateRange, setDateRange] = useState('1m');
+  // ---- Date range ----
+  const [dateRange, setDateRange] = useState('all'); // 'all' | '1m' | '6m' | '1y' | 'custom'
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
 
+  // Optional detail sheet (if you still use it)
   const [selectedMeasurement, setSelectedMeasurement] = useState(null);
 
   return (
     <div id="root">
+      {/* Top center bar */}
       <div className="control-bar">
         <SearchBar />
         <ModeSlider mode={mode} setMode={setMode} />
       </div>
 
+      {/* Right-side Filters */}
       <FiltersPanel
         typeFilters={typeFilters}
         setTypeFilters={setTypeFilters}
@@ -62,6 +70,7 @@ export default function App() {
         setConnTypes={setConnTypes}
         selectedProviders={providers}
         setSelectedProviders={setProviders}
+        // date
         dateRange={dateRange}
         setDateRange={setDateRange}
         customStartDate={customStartDate}
@@ -70,6 +79,7 @@ export default function App() {
         setCustomEndDate={setCustomEndDate}
       />
 
+      {/* Map */}
       <div id="map">
         <HexMap
           mode={mode}
@@ -81,6 +91,7 @@ export default function App() {
         />
       </div>
 
+      {/* Optional measurement panel */}
       {selectedMeasurement && (
         <SlidingPanel
           measurement={selectedMeasurement}

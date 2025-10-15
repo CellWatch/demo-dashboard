@@ -4,9 +4,9 @@ import React from 'react';
  * Props:
  * - typeFilters
  * - setTypeFilters(fn)
- * - connTypes: string[]                 // selected values; hardcoded options rendered
+ * - connTypes: string[]                 // e.g., ['4G','5G','Other']
  * - setConnTypes(fn)
- * - selectedProviders: string[]         // selected values; hardcoded options rendered
+ * - selectedProviders: string[]
  * - setSelectedProviders(fn)
  * - dateRange: 'all'|'1m'|'6m'|'1y'|'custom'
  * - setDateRange(fn)
@@ -70,7 +70,8 @@ export default function FiltersPanel({
   };
 
   /* -------- Connection Type (hardcoded) -------- */
-  const ALL_CONN = ['4G', '5G'];
+  const ALL_CONN = ['4G', '5G', 'Other'];
+
   const toggleConn = (label) => {
     setConnTypes((prev) =>
       prev.includes(label) ? prev.filter((v) => v !== label) : [...prev, label]
@@ -91,7 +92,7 @@ export default function FiltersPanel({
     const tf = typeFilters?.[typeKey] || { enabled: false, mode: 'all', threshold: '' };
     return (
       <div className="type-row">
-        <label className="check">
+        <label className="check type-label">
           <input
             type="checkbox"
             checked={!!tf.enabled}
@@ -100,29 +101,34 @@ export default function FiltersPanel({
           <span>{label}</span>
         </label>
 
+        {/* Subfilter: indented, each option on its own line */}
         {tf.enabled && !typeFilters?.all && (
           <div className="subgroup">
             <div className="radios-vert">
-              <label className="radio">
-                <input
-                  type="radio"
-                  name={`mode-${typeKey}`}
-                  value="all"
-                  checked={tf.mode === 'all'}
-                  onChange={(e) => setTypeMode(typeKey, e.target.value)}
-                />
-                <span>All</span>
+              <label className="radio radio-line">
+                <span className="radio-head">
+                  <input
+                    type="radio"
+                    name={`mode-${typeKey}`}
+                    value="all"
+                    checked={tf.mode === 'all'}
+                    onChange={(e) => setTypeMode(typeKey, e.target.value)}
+                  />
+                  <span>All</span>
+                </span>
               </label>
 
-              <label className="radio">
-                <input
-                  type="radio"
-                  name={`mode-${typeKey}`}
-                  value="above"
-                  checked={tf.mode === 'above'}
-                  onChange={(e) => setTypeMode(typeKey, e.target.value)}
-                />
-                <span>Above</span>
+              <label className="radio radio-line">
+                <span className="radio-head">
+                  <input
+                    type="radio"
+                    name={`mode-${typeKey}`}
+                    value="above"
+                    checked={tf.mode === 'above'}
+                    onChange={(e) => setTypeMode(typeKey, e.target.value)}
+                  />
+                  <span>Above</span>
+                </span>
                 <div className="inline-input">
                   <input
                     type="text"
@@ -136,15 +142,17 @@ export default function FiltersPanel({
                 </div>
               </label>
 
-              <label className="radio">
-                <input
-                  type="radio"
-                  name={`mode-${typeKey}`}
-                  value="below"
-                  checked={tf.mode === 'below'}
-                  onChange={(e) => setTypeMode(typeKey, e.target.value)}
-                />
-                <span>Below</span>
+              <label className="radio radio-line">
+                <span className="radio-head">
+                  <input
+                    type="radio"
+                    name={`mode-${typeKey}`}
+                    value="below"
+                    checked={tf.mode === 'below'}
+                    onChange={(e) => setTypeMode(typeKey, e.target.value)}
+                  />
+                  <span>Below</span>
+                </span>
                 <div className="inline-input">
                   <input
                     type="text"
@@ -173,7 +181,7 @@ export default function FiltersPanel({
         <div className="filter-subsection-title">Data Type</div>
 
         {/* All */}
-        <label className="check" style={{ marginBottom: 8 }}>
+        <label className="check">
           <input
             type="checkbox"
             checked={!!typeFilters?.all}
@@ -190,16 +198,16 @@ export default function FiltersPanel({
         </div>
 
         {typeFilters?.all && (
-          <div className="muted" style={{ marginTop: 6 }}>
+          <div className="muted">
             Showing all measurements.
           </div>
         )}
       </section>
 
-      {/* Connection Type (hardcoded) */}
+      {/* Connection Type (vertical, with 'Other') */}
       <section className="filter-subsection">
         <div className="filter-subsection-title">Connection Type</div>
-        <div className="checks">
+        <div className="checks-vert">
           {ALL_CONN.map((label) => (
             <label key={label} className="check">
               <input
@@ -217,7 +225,7 @@ export default function FiltersPanel({
       <section className="filter-subsection">
         <div className="filter-subsection-title">Provider</div>
         <div className="providers-list">
-          {ALL_PROVIDERS.map((p) => (
+          {['AT&T', 'T-Mobile', 'Verizon', 'Other'].map((p) => (
             <label key={p} className="provider-item">
               <input
                 type="checkbox"
@@ -234,56 +242,69 @@ export default function FiltersPanel({
       <section className="filter-subsection">
         <div className="filter-subsection-title">Date</div>
         <div className="radios-vert">
-          <label className="radio">
-            <input
-              type="radio"
-              name="dateRange"
-              value="all"
-              checked={dateRange === 'all'}
-              onChange={(e) => setDateRange(e.target.value)}
-            />
-            <span>All time</span>
+          <label className="radio radio-line">
+            <span className="radio-head">
+              <input
+                type="radio"
+                name="dateRange"
+                value="all"
+                checked={dateRange === 'all'}
+                onChange={(e) => setDateRange(e.target.value)}
+              />
+              <span>All time</span>
+            </span>
           </label>
 
-          <label className="radio">
-            <input
-              type="radio"
-              name="dateRange"
-              value="1m"
-              checked={dateRange === '1m'}
-              onChange={(e) => setDateRange(e.target.value)}
-            />
-            <span>Past month</span>
+          <label className="radio radio-line">
+            <span className="radio-head">
+              <input
+                type="radio"
+                name="dateRange"
+                value="1m"
+                checked={dateRange === '1m'}
+                onChange={(e) => setDateRange(e.target.value)}
+              />
+              <span>Past month</span>
+            </span>
           </label>
-          <label className="radio">
-            <input
-              type="radio"
-              name="dateRange"
-              value="6m"
-              checked={dateRange === '6m'}
-              onChange={(e) => setDateRange(e.target.value)}
-            />
-            <span>Past 6 months</span>
+
+          <label className="radio radio-line">
+            <span className="radio-head">
+              <input
+                type="radio"
+                name="dateRange"
+                value="6m"
+                checked={dateRange === '6m'}
+                onChange={(e) => setDateRange(e.target.value)}
+              />
+              <span>Past 6 months</span>
+            </span>
           </label>
-          <label className="radio">
-            <input
-              type="radio"
-              name="dateRange"
-              value="1y"
-              checked={dateRange === '1y'}
-              onChange={(e) => setDateRange(e.target.value)}
-            />
-            <span>Past year</span>
+
+          <label className="radio radio-line">
+            <span className="radio-head">
+              <input
+                type="radio"
+                name="dateRange"
+                value="1y"
+                checked={dateRange === '1y'}
+                onChange={(e) => setDateRange(e.target.value)}
+              />
+              <span>Past year</span>
+            </span>
           </label>
-          <label className="radio">
-            <input
-              type="radio"
-              name="dateRange"
-              value="custom"
-              checked={dateRange === 'custom'}
-              onChange={(e) => setDateRange(e.target.value)}
-            />
-            <span>Custom range</span>
+
+          <label className="radio radio-line">
+            <span className="radio-head">
+              <input
+                type="radio"
+                name="dateRange"
+                value="custom"
+                checked={dateRange === 'custom'}
+                onChange={(e) => setDateRange(e.target.value)}
+              />
+              <span>Custom range</span>
+            </span>
           </label>
 
           {dateRange === 'custom' && (

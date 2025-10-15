@@ -399,7 +399,14 @@ function BottomSheet({ open, onClose, data }) {
   const [sortDir, setSortDir] = useState('desc');
 
   const hexIdx  = data?.hexIdx ?? '';
-  const summary = data?.summary ?? { count: 0, down: { avg: null, min: null, max: null }, up: { avg: null, min: null, max: null }, ping: { avg: null, min: null, max: null }, jitter: { avg: null, min: null, max: null }, loss: { avg: null, min: null, max: null } };
+  const summary = data?.summary ?? {
+    count: 0,
+    down:   { avg: null, min: null, max: null },
+    up:     { avg: null, min: null, max: null },
+    ping:   { avg: null, min: null, max: null },
+    jitter: { avg: null, min: null, max: null },
+    loss:   { avg: null, min: null, max: null },
+  };
   const items = Array.isArray(data?.items) ? data.items : [];
 
   const sortedItems = useMemo(() => {
@@ -428,37 +435,84 @@ function BottomSheet({ open, onClose, data }) {
 
   if (!open) return null;
 
-  const sheet = { position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff', boxShadow: '0 -8px 24px rgba(0,0,0,0.12)', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 16, maxHeight: '52vh', overflow: 'auto', zIndex: 10000, fontFamily: 'Inter, system-ui, Arial, sans-serif' };
-  const pill = { width: 40, height: 4, background: '#e2e8f0', borderRadius: 2, margin: '0 auto 12px' };
+  // --- styles ---
+  const sheet = {
+    position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff',
+    boxShadow: '0 -8px 24px rgba(0,0,0,0.12)',
+    borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    padding: 0, /* <-- move padding into inner wrappers so sticky edge aligns cleanly */
+    maxHeight: '52vh', overflow: 'auto', zIndex: 10000,
+    fontFamily: 'Inter, system-ui, Arial, sans-serif',
+  };
+
+  // sticky wrapper that contains the title/sort + summary and stays fixed at top
+  const stickyWrap = {
+    position: 'sticky',
+    top: 0,
+    zIndex: 1,
+    background: '#fff',
+    boxShadow: '0 6px 12px rgba(0,0,0,0.04)', // subtle separation from scrolled list
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 16,
+    paddingBottom: 10, // a bit tighter above the list
+  };
+
+  const pill = { width: 40, height: 4, background: '#e2e8f0', borderRadius: 2, margin: '8px auto 12px' };
   const headerRow = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 };
   const title = { fontSize: 14, color: '#334155' };
   const closeBtn = { border:'1px solid #e2e8f0', borderRadius:8, background:'#fff', padding:'6px 10px', cursor:'pointer' };
-  const sortBar = { display: 'flex', alignItems: 'center', gap: 8, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px' };
+
+  const sortBar = {
+    display: 'flex', alignItems: 'center', gap: 8,
+    background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 8px'
+  };
   const select = { fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff' };
   const toggle = { fontSize: 12, padding: '6px 8px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer' };
-  const summaryGrid = { display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0,1fr))', gap: 8, margin: '8px 0 12px' };
+
+  const summaryGrid = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, minmax(0,1fr))',
+    gap: 8,
+    margin: '8px 0 2px',
+  };
   const sumCell = { background:'#f8fafc', border:'1px solid #e2e8f0', borderRadius:8, padding:'8px' };
   const sumLabel = { fontSize:11, color:'#64748b', marginBottom:4 };
   const sumVal = { fontSize:14, fontWeight:700, color: '#0f172a' };
   const sumSub = { fontSize:11, color:'#475569' };
+
+  const listWrap = { padding: 16, paddingTop: 10 }; // list content area below sticky header
   const list = { display: 'grid', gap: 10 };
   const row = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 8 };
   const when = { fontSize: 12, color: '#475569' };
-  const subtle = { fontSize: 11, color:'#64748b', marginTop: 2 };
+  const subtle = { fontSize: 11, color: '#64748b', marginTop: 2 };
   const statsBox = { display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' };
+
   const f = (x, d=1) => (x == null ? '—' : Number(x).toFixed(d));
 
   function TypeBadge({ type }) {
     const c = colorsForType(type);
-    return <span style={{ padding:'2px 6px', borderRadius:6, background:c.badgeBg, color:c.badgeText, fontSize:11, fontWeight:700 }}>{(type || 'UNKNOWN').toUpperCase()}</span>;
+    return (
+      <span style={{
+        padding:'2px 6px', borderRadius:6, background:c.badgeBg, color:c.badgeText,
+        fontSize:11, fontWeight:700
+      }}>
+        {(type || 'UNKNOWN').toUpperCase()}
+      </span>
+    );
   }
 
   function StatChip({ label, value, suffix, tint }) {
     const c = tint || TYPE_COLORS.default;
     return (
-      <div style={{ background: c.tintBg, border: `1px solid ${c.tintBorder}`, borderRadius: 8, padding: '6px 8px', textAlign: 'center', minWidth: 86 }}>
+      <div style={{
+        background: c.tintBg, border: `1px solid ${c.tintBorder}`, borderRadius: 8,
+        padding: '6px 8px', textAlign: 'center', minWidth: 86
+      }}>
         <div style={{ fontSize: 11, color:'#64748b' }}>{label}</div>
-        <div style={{ fontSize: 14, fontWeight: 700, color:'#0f172a' }}>{value} {suffix ? <span style={{fontWeight:400}}>{suffix}</span> : null}</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color:'#0f172a' }}>
+          {value} {suffix ? <span style={{fontWeight:400}}>{suffix}</span> : null}
+        </div>
       </div>
     );
   }
@@ -475,7 +529,9 @@ function BottomSheet({ open, onClose, data }) {
           <StatChip label="Ping"   value={f(s.ping, 0)}   suffix="ms"  tint={tint} />
           <StatChip label="Jitter" value={f(s.jitter, 0)} suffix="ms"  tint={tint} />
           <StatChip label="Loss"   value={f(s.loss, 1)}   suffix="%"   tint={tint} />
-          {(meta.packetsSent != null || meta.packetsRcvd != null) ? (<StatChip label="Packets" value={`${f(meta.packetsSent,0)}/${f(meta.packetsRcvd,0)}`} tint={tint} />) : null}
+          {(meta.packetsSent != null || meta.packetsRcvd != null) ? (
+            <StatChip label="Packets" value={`${f(meta.packetsSent,0)}/${f(meta.packetsRcvd,0)}`} tint={tint} />
+          ) : null}
         </>
       );
     }
@@ -510,61 +566,95 @@ function BottomSheet({ open, onClose, data }) {
 
   return (
     <div style={sheet}>
-      <div style={pill} />
-      <div style={headerRow}>
-        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-          <div style={title}><strong>Hex {hexIdx}</strong> · {summary.count} measurement{summary.count===1?'':'s'}</div>
-          <div style={sortBar}>
-            <span style={{ fontSize: 12, color: '#475569' }}>Sort by</span>
-            <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={select}>
-              <option value="time">Time</option>
-              <option value="down">Down (Mbps)</option>
-              <option value="up">Up (Mbps)</option>
-              <option value="ping">Ping (ms)</option>
-              <option value="jitter">Jitter (ms)</option>
-              <option value="loss">Loss (%)</option>
-            </select>
-            <button style={toggle} onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}>{sortDir === 'asc' ? 'Asc ↑' : 'Desc ↓'}</button>
+      {/* Sticky block (title + sort + summary) */}
+      <div style={stickyWrap}>
+        <div style={pill} />
+        <div style={headerRow}>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            <div style={title}><strong>Hex {hexIdx}</strong> · {summary.count} measurement{summary.count===1?'':'s'}</div>
+            <div style={sortBar}>
+              <span style={{ fontSize: 12, color: '#475569' }}>Sort by</span>
+              <select value={sortKey} onChange={(e) => setSortKey(e.target.value)} style={select}>
+                <option value="time">Time</option>
+                <option value="down">Down (Mbps)</option>
+                <option value="up">Up (Mbps)</option>
+                <option value="ping">Ping (ms)</option>
+                <option value="jitter">Jitter (ms)</option>
+                <option value="loss">Loss (%)</option>
+              </select>
+              <button style={toggle} onClick={() => setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}>
+                {sortDir === 'asc' ? 'Asc ↑' : 'Desc ↓'}
+              </button>
+            </div>
+          </div>
+          <button style={closeBtn} onClick={onClose}>Close</button>
+        </div>
+
+        <div style={summaryGrid}>
+          <div style={sumCell}>
+            <div style={sumLabel}>Down</div>
+            <div style={sumVal}>{fmt(summary.down.avg,1)} Mbps</div>
+            <div style={sumSub}>min {fmt(summary.down.min,1)} · max {fmt(summary.down.max,1)}</div>
+          </div>
+          <div style={sumCell}>
+            <div style={sumLabel}>Up</div>
+            <div style={sumVal}>{fmt(summary.up.avg,1)} Mbps</div>
+            <div style={sumSub}>min {fmt(summary.up.min,1)} · max {fmt(summary.up.max,1)}</div>
+          </div>
+          <div style={sumCell}>
+            <div style={sumLabel}>Ping</div>
+            <div style={sumVal}>{fmt(summary.ping.avg,0)} ms</div>
+            <div style={sumSub}>min {fmt(summary.ping.min,0)} · max {fmt(summary.ping.max,0)}</div>
+          </div>
+          <div style={sumCell}>
+            <div style={sumLabel}>Jitter</div>
+            <div style={sumVal}>{fmt(summary.jitter.avg,0)} ms</div>
+            <div style={sumSub}>min {fmt(summary.jitter.min,0)} · max {fmt(summary.jitter.max,0)}</div>
+          </div>
+          <div style={sumCell}>
+            <div style={sumLabel}>Loss</div>
+            <div style={sumVal}>{fmt(summary.loss.avg,1)} %</div>
+            <div style={sumSub}>min {fmt(summary.loss.min,1)} · max {fmt(summary.loss.max,1)}</div>
           </div>
         </div>
-        <button style={closeBtn} onClick={onClose}>Close</button>
       </div>
 
-      <div style={summaryGrid}>
-        <div style={sumCell}><div style={sumLabel}>Down</div><div style={sumVal}>{fmt(summary.down.avg,1)} Mbps</div><div style={sumSub}>min {fmt(summary.down.min,1)} · max {fmt(summary.down.max,1)}</div></div>
-        <div style={sumCell}><div style={sumLabel}>Up</div><div style={sumVal}>{fmt(summary.up.avg,1)} Mbps</div><div style={sumSub}>min {fmt(summary.up.min,1)} · max {fmt(summary.up.max,1)}</div></div>
-        <div style={sumCell}><div style={sumLabel}>Ping</div><div style={sumVal}>{fmt(summary.ping.avg,0)} ms</div><div style={sumSub}>min {fmt(summary.ping.min,0)} · max {fmt(summary.ping.max,0)}</div></div>
-        <div style={sumCell}><div style={sumLabel}>Jitter</div><div style={sumVal}>{fmt(summary.jitter.avg,0)} ms</div><div style={sumSub}>min {fmt(summary.jitter.min,0)} · max {fmt(summary.jitter.max,0)}</div></div>
-        <div style={sumCell}><div style={sumLabel}>Loss</div><div style={sumVal}>{fmt(summary.loss.avg,1)} %</div><div style={sumSub}>min {fmt(summary.loss.min,1)} · max {fmt(summary.loss.max,1)}</div></div>
-      </div>
+      {/* Scrolling list content */}
+      <div style={listWrap}>
+        {!sortedItems.length && (
+          <div style={{ color:'#64748b', fontSize:13 }}>
+            No measurements in this hex (after filters).
+          </div>
+        )}
 
-      {!sortedItems.length && (<div style={{ color:'#64748b', fontSize:13 }}>No measurements in this hex (after filters).</div>)}
+        {!!sortedItems.length && (
+          <div style={list}>
+            {sortedItems.map((m, i) => {
+              const ts = m?.timestamp ? new Date(m.timestamp) : null;
+              const tsStr = ts ? ts.toLocaleString() : '—';
+              const key = `${m.id || m.measurement_id || 'm'}-${m.timestamp || i}-${m.loc_id || i}`;
+              const type = (m?.type || '').toLowerCase();
+              const serverShort = m.__stats?.meta?.server ? m.__stats.meta.server.split('.')[0] : null;
 
-      {!!sortedItems.length && (
-        <div style={list}>
-          {sortedItems.map((m, i) => {
-            const ts = m?.timestamp ? new Date(m.timestamp) : null;
-            const tsStr = ts ? ts.toLocaleString() : '—';
-            const key = `${m.id || m.measurement_id || 'm'}-${m.timestamp || i}-${m.loc_id || i}`;
-            const type = (m?.type || '').toLowerCase();
-            const serverShort = m.__stats?.meta?.server ? m.__stats.meta.server.split('.')[0] : null;
-
-            return (
-              <div key={key} style={row}>
-                <div>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>{m.provider || 'Measurement'}</div>
-                    <TypeBadge type={type} />
+              return (
+                <div key={key} style={row}>
+                  <div>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
+                        {m.provider || 'Measurement'}
+                      </div>
+                      <TypeBadge type={type} />
+                    </div>
+                    <div style={when}>{tsStr}</div>
+                    {serverShort && <div style={subtle}>Server: {serverShort}</div>}
                   </div>
-                  <div style={when}>{tsStr}</div>
-                  {serverShort && <div style={subtle}>Server: {serverShort}</div>}
+                  <div style={statsBox}>{renderTypeSpecific(m)}</div>
                 </div>
-                <div style={statsBox}>{renderTypeSpecific(m)}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
