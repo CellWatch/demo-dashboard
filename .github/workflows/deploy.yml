@@ -25,12 +25,27 @@ jobs:
           node-version: 20
 
       - run: npm ci
-      - run: npm run build
+
+      # TEMP: sanity check that secrets are available to the job (no values printed)
+      - name: Check build-time envs
+        run: |
+          echo "Has URL?  $([ -n \"$VITE_SUPABASE_URL\" ] && echo yes || echo no)"
+          echo "Has ANON?  $([ -n \"$VITE_SUPABASE_ANON_KEY\" ] && echo yes || echo no)"
+          echo "Has DASH?  $([ -n \"$VITE_DASHBOARD_SECRET\" ] && echo yes || echo no)"
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_DASHBOARD_SECRET: ${{ secrets.VITE_DASHBOARD_SECRET }}
-      - run: cp dist/index.html dist/404.html || true
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          VITE_DASHBOARD_SECRET: ${{ secrets.VITE_DASHBOARD_SECRET }}
+
+      - name: SPA fallback
+        run: cp dist/index.html dist/404.html || true
 
       - uses: actions/upload-pages-artifact@v3
         with:
