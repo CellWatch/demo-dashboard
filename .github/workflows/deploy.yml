@@ -1,7 +1,8 @@
-name: Deploy Dashboard to GitHub Pages
+name: Deploy Demo Dashboard to GitHub Pages
+
 on:
   push:
-    branches: [ dashboard ]
+    branches: [dashboard]
   workflow_dispatch:
 
 permissions:
@@ -10,7 +11,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 
 jobs:
@@ -25,8 +26,9 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-        env:
+
       - run: cp dist/index.html dist/404.html || true
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
