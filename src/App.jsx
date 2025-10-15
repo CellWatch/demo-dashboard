@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import HexMap from './components/HexMap';
 import SlidingPanel from './components/SlidingPanel';
+import FiltersPanel from './components/FiltersPanel';
 import './style.css';
 
 function SearchBar() {
@@ -28,28 +29,23 @@ function ModeSlider({ mode, setMode }) {
   );
 }
 
-function FilterSection({ title, children }) {
-  const [open, setOpen] = useState(true);
-  return (
-    <div className="filter-section">
-      <div
-        className="filter-section-header"
-        onClick={() => setOpen(!open)}
-      >
-        <span>{title}</span>
-        <span className={open ? 'arrow open' : 'arrow'}>▼</span>
-      </div>
-      {open && <div className="filter-section-body">{children}</div>}
-    </div>
-  );
-}
-
 export default function App() {
-  const [mode, setMode]                   = useState('hex');
-  const [dataType, setDataType]           = useState('all');
-  const [connTypes, setConnTypes]         = useState([]);
-  const [providers, setProviders]         = useState([]);
-  const [dateRange, setDateRange]         = useState('1m');
+  const [mode, setMode] = useState('hex');
+
+  const [typeFilters, setTypeFilters] = useState({
+    all: true,
+    upload:   { enabled: false, mode: 'all', threshold: '' },
+    download: { enabled: false, mode: 'all', threshold: '' },
+    latency:  { enabled: false, mode: 'all', threshold: '' },
+  });
+
+  const [connTypes, setConnTypes] = useState(['4G', '5G']);
+  const [providers, setProviders] = useState(['AT&T', 'T-Mobile', 'Verizon', 'Other']);
+
+  const [dateRange, setDateRange] = useState('1m');
+  const [customStartDate, setCustomStartDate] = useState('');
+  const [customEndDate, setCustomEndDate] = useState('');
+
   const [selectedMeasurement, setSelectedMeasurement] = useState(null);
 
   return (
@@ -59,17 +55,28 @@ export default function App() {
         <ModeSlider mode={mode} setMode={setMode} />
       </div>
 
-      <div className="filter-control">
-        {/* … your filter sections … */}
-      </div>
+      <FiltersPanel
+        typeFilters={typeFilters}
+        setTypeFilters={setTypeFilters}
+        connTypes={connTypes}
+        setConnTypes={setConnTypes}
+        selectedProviders={providers}
+        setSelectedProviders={setProviders}
+        dateRange={dateRange}
+        setDateRange={setDateRange}
+        customStartDate={customStartDate}
+        setCustomStartDate={setCustomStartDate}
+        customEndDate={customEndDate}
+        setCustomEndDate={setCustomEndDate}
+      />
 
       <div id="map">
         <HexMap
           mode={mode}
-          dataType={dataType}
+          typeFilters={typeFilters}
           connTypes={connTypes}
           providers={providers}
-          dateRange={dateRange}
+          dateRange={{ preset: dateRange, start: customStartDate, end: customEndDate }}
           onPointClick={setSelectedMeasurement}
         />
       </div>

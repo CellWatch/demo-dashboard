@@ -210,3 +210,178 @@ hr {
 .panel-content h3 {
   margin-top: 0;
 }
+
+/* ===== Top-right Filters panel ===== */
+.filters-panel {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 300px;
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #000;        /* black outline to match request */
+  border-radius: 6px;
+  padding: 10px 12px 12px;
+  z-index: 25;                   /* above map, under control bar if needed */
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.filters-header {
+  font-weight: 700;
+  font-size: 16px;
+  text-align: left;              /* left-aligned header */
+  margin-bottom: 8px;
+}
+
+/* Gray cards with black outline inside the panel */
+.filter-card {
+  background: #f3f4f6;           /* light gray */
+  border: 1px solid #000;        /* black outline */
+  border-radius: 6px;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.filter-card-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* Segmented button group */
+.segmented {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.segmented.wrap {
+  flex-wrap: wrap;
+}
+
+.segmented button {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 13px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.segmented button.selected {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+}
+
+/* Radio subgroup for All / Above / Below */
+.subgroup {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed #9ca3af;
+}
+
+.radio-row {
+  display: grid;
+  gap: 8px;
+}
+
+.radio-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.radio-row .with-input {
+  justify-content: space-between;
+}
+
+.number-with-unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+.number-with-unit input[type="number"] {
+  width: 84px;
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.number-with-unit .unit {
+  font-size: 12px;
+  color: #374151;
+}
+
+/* Providers list */
+.providers-list {
+  display: grid;
+  grid-auto-rows: minmax(28px, auto);
+  gap: 4px;
+  max-height: 140px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 6px;
+}
+
+.provider-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.muted {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Date row */
+.date-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.date-row label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.date-row input[type="date"] {
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+}
+
+
+.filter-subsection {
+  background: #f3f4f6;
+  border: 1px solid #000;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.filter-subsection-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.filter-subsection .btn-group,
+.filter-subsection .checks,
+.filter-subsection .radios-vert,
+.filter-subsection .providers-list {
+  margin-top: 6px;
+}
