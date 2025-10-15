@@ -334,7 +334,50 @@ async function fetchMeasurementsByIds(ids) {
   return measById;
 }
 
-// ------------- provider / connection normalization ---------------------------
+/**
+ * Fetch network_generation for each measurement_id from the `cells` table.
+ * Returns Map<measurement_id, network_generation_string>
+ */
+async function fetchCellsByMeasurementIds(ids) {
+  const out = new Map();
+  const uniq = Array.from(new Set(ids));
+  if (!uniq.length) return out;
+
+  try {
+    // pull all rows that match; if a measurement has many cell rows, we take the "best" hint later
+    const { data, error } = await supabase
+      .from('cells')
+      .select('measurement_id, network_generation')
+      .in('measurement_id', uniq);
+
+    if (error) {
+      derr('[cells] fetch error:', error);
+      return out;
+    }
+
+    for (const row of data || []) {
+      const mid = row?.measurement_id;
+      const gen = row?.network_generation;
+      if (!mid) continue;
+      // Prefer a 5G hit if any exist for this measurement; else keep first seen (likely 4G)
+      if (!out.has(mid)) {
+        out.set(mid, gen);
+      } else {
+        const prev = String(out.get(mid) || '').toLowerCase();
+        const cur  = String(gen || '').toLowerCase();
+        const is5  = (s) => s.includes('5g') || s.includes('nr');
+        if (!is5(prev) && is5(cur)) out.set(mid, gen);
+      }
+    }
+  } catch (e) {
+    derr('[cells] fetch crashed:', e);
+  }
+
+  flog('cells map built', { size: out.size });
+  return out;
+}
+
+// ------------- provider normalization ---------------------------
 function normalizeProviderBucket(provider) {
   const p = String(provider || '').toLowerCase();
   if (p.includes('att') || p.includes('at&t')) return 'AT&T';
@@ -343,25 +386,50 @@ function normalizeProviderBucket(provider) {
   return 'Other';
 }
 
-function deriveConnType(row) {
-  const extra = parseMaybeJSON(row?.extra_data) || {};
-  const inStr = (...keys) => {
-    for (const k of keys) {
-      const v = extra?.[k];
-      if (v == null) continue;
-      const s = String(v).toLowerCase();
-      if (s.includes('5g') || s.includes('nr')) return '5G';
-      if (s.includes('lte') || s.includes('4g')) return '4G';
-      if (s.includes('wifi') || s.includes('wi-fi')) return 'WiFi';
-    }
-    return null;
+/**
+ * Derive a canonical connection tag for filtering:
+ *  - Prefer explicit generation from cells.network_generation
+ *  - fallback to scraping provider/type/extra_data for hints
+ * Returns one of: '5G' | '4G' | 'Other'
+ */
+function deriveConnTag(meas, genHint) {
+  // 1) prefer generation from cells
+  if (genHint) {
+    const g = String(genHint).toLowerCase();
+    if (g.includes('5g') || g.includes('nr')) return '5G';
+    if (g.includes('4g') || g.includes('lte')) return '4G';
+  }
+
+  // 2) fallback: scrape fields
+  let hay = '';
+  const push = (v) => {
+    if (!v && v !== 0) return;
+    hay += ` ${String(v).toLowerCase()}`;
   };
-  const keys = ['networkType','rat','cell_tech','generation','radio','conn','technology','network','access'];
-  const fromExtra = inStr(...keys);
-  if (fromExtra) return fromExtra;
-  const t = String(row?.provider || '').toLowerCase();
-  if (t.includes('wifi')) return 'WiFi';
-  return 'Unknown';
+
+  push(meas?.provider);
+  push(meas?.type);
+  const extra = parseMaybeJSON(meas?.extra_data) || {};
+  const walk = (obj) => {
+    if (!obj || typeof obj !== 'object') return;
+    for (const [k, v] of Object.entries(obj)) {
+      push(k);
+      if (v == null) continue;
+      if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
+        push(v);
+      } else if (Array.isArray(v)) {
+        v.forEach(walk);
+      } else if (typeof v === 'object') {
+        walk(v);
+      }
+    }
+  };
+  walk(extra);
+
+  const has = (s) => hay.includes(s);
+  if (has('5g') || has('nr') || has('nsa') || has('sa') || has('nr5g') || has('5 g')) return '5G';
+  if (has('lte') || has('4g') || has('4 g') || has('lte-a') || has('ltea')) return '4G';
+  return 'Other';
 }
 
 async function fetchViewportRows(map) {
@@ -369,7 +437,10 @@ async function fetchViewportRows(map) {
   const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth();
   const locs = await fetchLocationsInBox({ south, west, north, east });
   if (!locs?.length) return [];
-  const measMap = await fetchMeasurementsByIds(locs.map(l => l.measurement_id));
+  const measIds = locs.map(l => l.measurement_id);
+  const measMap = await fetchMeasurementsByIds(measIds);
+  const cellsMap = await fetchCellsByMeasurementIds(measIds); // <-- NEW
+
   const rows = locs.map(l => {
     const m = measMap.get(l.measurement_id) || { id: l.measurement_id };
     const base = {
@@ -384,11 +455,15 @@ async function fetchViewportRows(map) {
       lat: Number(l.lat),
       lon: Number(l.lon),
     };
+
+    const genHint = cellsMap.get(l.measurement_id) || null;
     const __stats = extractStats(base);
-    const __conn = deriveConnType(base);
+    const __conn = deriveConnTag(base, genHint);                  // <-- uses cells.network_generation when present
     const __providerBucket = normalizeProviderBucket(base.provider);
+
     return { ...base, __stats, __conn, __providerBucket };
   });
+
   flog('fetchViewportRows result', { count: rows.length, bbox: { west, east, south, north } });
   return rows;
 }
@@ -440,22 +515,21 @@ function BottomSheet({ open, onClose, data }) {
     position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff',
     boxShadow: '0 -8px 24px rgba(0,0,0,0.12)',
     borderTopLeftRadius: 16, borderTopRightRadius: 16,
-    padding: 0, /* <-- move padding into inner wrappers so sticky edge aligns cleanly */
+    padding: 0,
     maxHeight: '52vh', overflow: 'auto', zIndex: 10000,
     fontFamily: 'Inter, system-ui, Arial, sans-serif',
   };
 
-  // sticky wrapper that contains the title/sort + summary and stays fixed at top
   const stickyWrap = {
     position: 'sticky',
     top: 0,
     zIndex: 1,
     background: '#fff',
-    boxShadow: '0 6px 12px rgba(0,0,0,0.04)', // subtle separation from scrolled list
+    boxShadow: '0 6px 12px rgba(0,0,0,0.04)',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 16,
-    paddingBottom: 10, // a bit tighter above the list
+    paddingBottom: 10,
   };
 
   const pill = { width: 40, height: 4, background: '#e2e8f0', borderRadius: 2, margin: '8px auto 12px' };
@@ -481,7 +555,7 @@ function BottomSheet({ open, onClose, data }) {
   const sumVal = { fontSize:14, fontWeight:700, color: '#0f172a' };
   const sumSub = { fontSize:11, color:'#475569' };
 
-  const listWrap = { padding: 16, paddingTop: 10 }; // list content area below sticky header
+  const listWrap = { padding: 16, paddingTop: 10 };
   const list = { display: 'grid', gap: 10 };
   const row = { border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 8 };
   const when = { fontSize: 12, color: '#475569' };
@@ -665,7 +739,7 @@ export default function HexMap({
   // filters (props may come from App)
   typeFilters = { all: true, upload: { enabled: false, mode: 'all', threshold: '' }, download: { enabled: false, mode: 'all', threshold: '' }, latency: { enabled: false, mode: 'all', threshold: '' } },
   // hardcoded lists: default to ALL ON
-  connTypes = ['4G','5G'],
+  connTypes = ['4G','5G'],                  // NOTE: 'Other' can be included from the UI too
   providers = ['AT&T','T-Mobile','Verizon','Other'],
   dateRange = { preset: 'all', start: '', end: '' },
   onPointClick = () => {},
@@ -754,15 +828,12 @@ export default function HexMap({
     return ['upload','download','latency'].some(k => check(k));
   };
 
-  // treat BOTH 4G+5G selected as "no filtering"
+  // Connection type filter using canonical row.__conn ('4G'|'5G'|'Other')
   const connPass = (row) => {
-    if (!connTypes?.length) return true;
-    if (connTypes.includes('4G') && connTypes.includes('5G')) return true;
-
-    const c = String(row?.__conn || '').toUpperCase();
-    if (c.includes('LTE') || c.includes('4G')) return connTypes.includes('4G');
-    if (c.includes('5G')) return connTypes.includes('5G');
-    return false; // WiFi/Unknown => excluded only when we are filtering
+    const selected = new Set(connTypes || []);
+    if (selected.size === 0) return true; // none checked => no filtering
+    const tag = row?.__conn || 'Other';
+    return selected.has(tag);
   };
 
   const providerPass = (row) => {
@@ -797,8 +868,8 @@ export default function HexMap({
     const typesAfter  = histBy(after,  r => String(r?.type || '—').toLowerCase());
     const provBefore  = histBy(before, r => r.__providerBucket || normalizeProviderBucket(r.provider));
     const provAfter   = histBy(after,  r => r.__providerBucket || normalizeProviderBucket(r.provider));
-    const connBefore  = histBy(before, r => r.__conn || 'Unknown');
-    const connAfter   = histBy(after,  r => r.__conn || 'Unknown');
+    const connBefore  = histBy(before, r => r.__conn || 'Other');
+    const connAfter   = histBy(after,  r => r.__conn || 'Other');
 
     flog('FILTER SUMMARY', {
       counts: { before: before.length, after: after.length, excluded: drops.total },
