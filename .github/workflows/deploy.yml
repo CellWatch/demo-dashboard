@@ -19,19 +19,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-
       - run: npm ci
 
-      # TEMP: sanity check that secrets are available to the job (no values printed)
       - name: Check build-time envs
         run: |
-          echo "Has URL?  $([ -n \"$VITE_SUPABASE_URL\" ] && echo yes || echo no)"
-          echo "Has ANON?  $([ -n \"$VITE_SUPABASE_ANON_KEY\" ] && echo yes || echo no)"
-          echo "Has DASH?  $([ -n \"$VITE_DASHBOARD_SECRET\" ] && echo yes || echo no)"
+          echo "Has URL?    $([ -n \"$VITE_SUPABASE_URL\" ] && echo yes || echo no)"
+          echo "Has ANON?   $([ -n \"$VITE_SUPABASE_ANON_KEY\" ] && echo yes || echo no)"
+          echo "Has DASH?   $([ -n \"$VITE_DASHBOARD_SECRET\" ] && echo yes || echo no)"
+          echo "Has MAPBOX? $([ -n \"$VITE_MAPBOX_TOKEN\" ] && echo yes || echo no)"
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
