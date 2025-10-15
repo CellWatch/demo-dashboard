@@ -96,7 +96,8 @@ body {
 .filter-control {
   position: absolute;
   top: 4rem;
-  left: 1rem;
+  left: 1rem;       /* back to left */
+  right: auto;
   width: 250px;
   max-height: calc(100vh - 5rem);
   overflow-y: auto;
@@ -211,16 +212,17 @@ hr {
   margin-top: 0;
 }
 
-/* ===== Top-right Filters panel (current) ===== */
+/* ===== Filters panel (current) ===== */
 .filters-panel {
   position: absolute;
   top: 1rem;
-  right: 1rem;
+  left: 1rem;     /* moved back to left side */
+  right: auto;
   width: 300px;
   max-height: calc(100vh - 2rem);
   overflow-y: auto;
   background: #ffffff;
-  border: 1px solid #000;        /* black outline to match request */
+  border: 1px solid #000;
   border-radius: 6px;
   padding: 10px 12px 12px;
   z-index: 25;
@@ -272,7 +274,7 @@ hr {
   margin-top: 6px;
 }
 
-/* --- Input focus: remove dashed outlines and use a soft ring --- */
+/* Input focus ring cleanup */
 .filters-panel input[type="checkbox"],
 .filters-panel input[type="radio"],
 .filters-panel input[type="text"],
@@ -293,7 +295,7 @@ hr {
   border-radius: 6px;
 }
 
-/* --- Generic option rows --- */
+/* Generic option rows */
 .check,
 .radio {
   display: inline-flex;
@@ -310,12 +312,10 @@ hr {
   display: grid;
   grid-auto-rows: minmax(28px, auto);
   gap: 4px;
-
   background: transparent;
   border: none;
   border-radius: 0;
   padding: 0;
-
   max-height: 140px;
   overflow-y: auto;
 }
@@ -332,7 +332,7 @@ hr {
   color: #6b7280;
 }
 
-/* Segmented button group (kept if you use it elsewhere) */
+/* Segmented button group */
 .segmented {
   display: flex;
   gap: 6px;
@@ -354,41 +354,35 @@ hr {
   border-color: #111827;
 }
 
-/* ===== Sub-filter layout (All / Above / Below) ===== */
-
-/* Indent sub-filters to make relationship obvious */
+/* Sub-filter layout (All / Above / Below) */
 .subgroup {
   margin-top: 8px;
-  margin-left: 18px;             /* indentation */
+  margin-left: 18px;
   padding-left: 10px;
-  border-left: 2px solid #e5e7eb;/* subtle guide line */
-  /* removed: border-top: 1px dashed #9ca3af; */
+  border-left: 2px solid #e5e7eb;
 }
 
-/* Stack each option on its own line */
+/* Stack subfilter options */
 .radios-vert {
   display: grid;
   gap: 8px;
 }
-
-/* Each radio item can contain a header row + its own input area */
 .radio-line {
   display: grid;
   gap: 6px;
 }
-
 .radio-head {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
-/* Inline numeric input that sits under/with Above/Below */
+/* Inline numeric input */
 .inline-input {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: 26px;             /* tab under radio label */
+  margin-left: 26px;
 }
 .inline-input input[type="text"] {
   width: 90px;
@@ -403,7 +397,7 @@ hr {
   color: #374151;
 }
 
-/* Legacy number-with-unit (kept for compatibility) */
+/* Legacy number-with-unit */
 .number-with-unit {
   display: inline-flex;
   align-items: center;
@@ -422,7 +416,7 @@ hr {
   color: #374151;
 }
 
-/* Date range rows */
+/* Date range */
 .date-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -441,14 +435,22 @@ hr {
   font-size: 13px;
   background: #fff;
 }
-
 .date-range {
   display: grid;
   gap: 8px;
   margin-left: 26px;
 }
-
 .checks-vert {
   display: grid;
   gap: 6px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+  .filters-panel,
+  .filter-control {
+    left: 0.5rem;
+    right: auto;
+    width: calc(100vw - 1rem);
+  }
 }
