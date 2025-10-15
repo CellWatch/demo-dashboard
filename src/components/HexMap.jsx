@@ -13,17 +13,14 @@ const PAGE_SIZE = 2000;
 const MAX_PAGES = 20;
 const MEAS_CHUNK = 500;
 
-// ---- DEBUG SWITCHES ---------------------------------------------------------
-const DEBUG_HEX = true;            // map/h3 logs
-const DEBUG_HEX_FILTERS = true;    // filter diagnostics
+const DEBUG_HEX = true;
+const DEBUG_HEX_FILTERS = true;
 
-// ---- console helpers ---------------------------------------------------------
 const dlog  = (...a) => { if (DEBUG_HEX) console.log('[HexMap]', ...a); };
 const dwarn = (...a) => { if (DEBUG_HEX) console.warn('[HexMap]', ...a); };
 const derr  = (...a) => { if (DEBUG_HEX) console.error('[HexMap]', ...a); };
 
 const flog  = (...a) => { if (DEBUG_HEX_FILTERS) console.log('[HexMap][filters]', ...a); };
-// const fwarn = (...a) => { if (DEBUG_HEX_FILTERS) console.warn('[HexMap][filters]', ...a); };
 
 if (typeof window !== 'undefined') window.__hexmap = window.__hexmap || {};
 
@@ -75,7 +72,6 @@ function viewportLoops(map) {
   return [makeLoop(south, west, north, 180), makeLoop(south, -180, north, east)];
 }
 
-// --- H3 v4 compat ---
 function polygonToCellsCompat(inputRing, res) {
   let ring = inputRing;
   if (Array.isArray(ring) && Array.isArray(ring[0]) && Array.isArray(ring[0][0])) ring = ring[0];
@@ -195,12 +191,9 @@ function normalizeUpDownRow(r) {
 function extractStats(meas) {
   const updown = meas?.upload_download_data ?? meas?.uploadDownloadData ?? meas?.upload_download_datas ?? meas?.uploadDownloadDatas;
   const latency = meas?.latency_data ?? meas?.latencyData;
-
   let down = null, up = null, ping = null, jitter = null, loss = null;
   const meta = { kind: meas?.type || null, server: null, durationSec: null, bytesMB: null, warmupSec: null, packetsSent: null, packetsRcvd: null };
-
   const t = (meas?.type || '').toLowerCase();
-
   if (t === 'latency') {
     const lArr = arrify(latency);
     const firstWithVals = lArr.find(x => toNum(x?.rtt) != null || toNum(x?.rtt_us) != null || toNum(x?.ping_us) != null || toNum(x?.ping_ms) != null) || lArr[0];
@@ -232,7 +225,6 @@ function extractStats(meas) {
       loss   = getBy('loss')     ?? getBy('packetloss') ?? loss;
     }
   }
-
   return { down, up, ping, jitter, loss, meta };
 }
 
@@ -265,7 +257,6 @@ function rowsToPointFeatures(rows) {
   return { type: 'FeatureCollection', features };
 }
 
-// --------------------------- data fetch --------------------------------------
 async function fetchLocationsInBox({ south, west, north, east, pageSize = PAGE_SIZE, maxPages = MAX_PAGES }) {
   const runBox = async (W, E) => {
     const out = [];
@@ -293,25 +284,20 @@ async function fetchLocationsInBox({ south, west, north, east, pageSize = PAGE_S
 async function fetchMeasurementsByIds(ids) {
   const measById = new Map();
   const uniq = Array.from(new Set(ids));
-
   const groupBy = (rows, key) => {
     const m = new Map();
     for (const r of rows || []) { const k = r[key]; if (!m.has(k)) m.set(k, []); m.get(k).push(r); }
     return m;
   };
-
   for (let i = 0; i < uniq.length; i += MEAS_CHUNK) {
     const slice = uniq.slice(i, i + MEAS_CHUNK);
-
     let measRows, mErr;
     try {
       const resp = await supabase.from('measurements').select('id, provider, type, timestamp, extra_data').in('id', slice);
       measRows = resp?.data; mErr = resp?.error;
     } catch (e) { mErr = e; }
     if (mErr) derr('[measurements] fetch error:', mErr);
-
     for (const m of (measRows || [])) measById.set(m.id, { ...m, upload_download_data: [], latency_data: [] });
-
     let upRows, upErr;
     try {
       const resp = await supabase.from('upload_download_data').select('id, measurement_id, warmup_duration, warmup_bytes, duration, bytes, servers, application_bytes, bytes_per_sec, application_bytes_per_sec, created_on, updated_on').in('measurement_id', slice);
@@ -320,7 +306,6 @@ async function fetchMeasurementsByIds(ids) {
     if (upErr) derr('[upload_download_data] fetch error:', upErr);
     const byMeasUp = groupBy(upRows || [], 'measurement_id');
     for (const [mid, rows] of byMeasUp.entries()) { const base = measById.get(mid); if (base) base.upload_download_data = rows; }
-
     let latRows, latErr;
     try {
       const resp = await supabase.from('latency_data').select('id, measurement_id, rtt, jitter, sent, received, servers, created_on, updated_on').in('measurement_id', slice);
@@ -330,36 +315,26 @@ async function fetchMeasurementsByIds(ids) {
     const byMeasLat = groupBy(latRows || [], 'measurement_id');
     for (const [mid, rows] of byMeasLat.entries()) { const base = measById.get(mid); if (base) base.latency_data = rows; }
   }
-
   return measById;
 }
 
-/**
- * Fetch network_generation for each measurement_id from the `cells` table.
- * Returns Map<measurement_id, network_generation_string>
- */
 async function fetchCellsByMeasurementIds(ids) {
   const out = new Map();
   const uniq = Array.from(new Set(ids));
   if (!uniq.length) return out;
-
   try {
-    // pull all rows that match; if a measurement has many cell rows, we take the "best" hint later
     const { data, error } = await supabase
       .from('cells')
       .select('measurement_id, network_generation')
       .in('measurement_id', uniq);
-
     if (error) {
       derr('[cells] fetch error:', error);
       return out;
     }
-
     for (const row of data || []) {
       const mid = row?.measurement_id;
       const gen = row?.network_generation;
       if (!mid) continue;
-      // Prefer a 5G hit if any exist for this measurement; else keep first seen (likely 4G)
       if (!out.has(mid)) {
         out.set(mid, gen);
       } else {
@@ -372,12 +347,10 @@ async function fetchCellsByMeasurementIds(ids) {
   } catch (e) {
     derr('[cells] fetch crashed:', e);
   }
-
   flog('cells map built', { size: out.size });
   return out;
 }
 
-// ------------- provider normalization ---------------------------
 function normalizeProviderBucket(provider) {
   const p = String(provider || '').toLowerCase();
   if (p.includes('att') || p.includes('at&t')) return 'AT&T';
@@ -386,27 +359,17 @@ function normalizeProviderBucket(provider) {
   return 'Other';
 }
 
-/**
- * Derive a canonical connection tag for filtering:
- *  - Prefer explicit generation from cells.network_generation
- *  - fallback to scraping provider/type/extra_data for hints
- * Returns one of: '5G' | '4G' | 'Other'
- */
 function deriveConnTag(meas, genHint) {
-  // 1) prefer generation from cells
   if (genHint) {
     const g = String(genHint).toLowerCase();
     if (g.includes('5g') || g.includes('nr')) return '5G';
     if (g.includes('4g') || g.includes('lte')) return '4G';
   }
-
-  // 2) fallback: scrape fields
   let hay = '';
   const push = (v) => {
     if (!v && v !== 0) return;
     hay += ` ${String(v).toLowerCase()}`;
   };
-
   push(meas?.provider);
   push(meas?.type);
   const extra = parseMaybeJSON(meas?.extra_data) || {};
@@ -425,7 +388,6 @@ function deriveConnTag(meas, genHint) {
     }
   };
   walk(extra);
-
   const has = (s) => hay.includes(s);
   if (has('5g') || has('nr') || has('nsa') || has('sa') || has('nr5g') || has('5 g')) return '5G';
   if (has('lte') || has('4g') || has('4 g') || has('lte-a') || has('ltea')) return '4G';
@@ -439,8 +401,7 @@ async function fetchViewportRows(map) {
   if (!locs?.length) return [];
   const measIds = locs.map(l => l.measurement_id);
   const measMap = await fetchMeasurementsByIds(measIds);
-  const cellsMap = await fetchCellsByMeasurementIds(measIds); // <-- NEW
-
+  const cellsMap = await fetchCellsByMeasurementIds(measIds);
   const rows = locs.map(l => {
     const m = measMap.get(l.measurement_id) || { id: l.measurement_id };
     const base = {
@@ -455,24 +416,19 @@ async function fetchViewportRows(map) {
       lat: Number(l.lat),
       lon: Number(l.lon),
     };
-
     const genHint = cellsMap.get(l.measurement_id) || null;
     const __stats = extractStats(base);
-    const __conn = deriveConnTag(base, genHint);                  // <-- uses cells.network_generation when present
+    const __conn = deriveConnTag(base, genHint);
     const __providerBucket = normalizeProviderBucket(base.provider);
-
     return { ...base, __stats, __conn, __providerBucket };
   });
-
   flog('fetchViewportRows result', { count: rows.length, bbox: { west, east, south, north } });
   return rows;
 }
 
-// ----------------------------- BottomSheet -----------------------------------
 function BottomSheet({ open, onClose, data }) {
   const [sortKey, setSortKey] = useState('time');
   const [sortDir, setSortDir] = useState('desc');
-
   const hexIdx  = data?.hexIdx ?? '';
   const summary = data?.summary ?? {
     count: 0,
@@ -483,7 +439,6 @@ function BottomSheet({ open, onClose, data }) {
     loss:   { avg: null, min: null, max: null },
   };
   const items = Array.isArray(data?.items) ? data.items : [];
-
   const sortedItems = useMemo(() => {
     const val = (m, key) => {
       const s = m.__stats || {};
@@ -510,7 +465,6 @@ function BottomSheet({ open, onClose, data }) {
 
   if (!open) return null;
 
-  // --- styles ---
   const sheet = {
     position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff',
     boxShadow: '0 -8px 24px rgba(0,0,0,0.12)',
@@ -596,7 +550,6 @@ function BottomSheet({ open, onClose, data }) {
     const s = m.__stats || {};
     const meta = s.meta || {};
     const tint = colorsForType(t);
-
     if (t === 'latency') {
       return (
         <>
@@ -640,7 +593,6 @@ function BottomSheet({ open, onClose, data }) {
 
   return (
     <div style={sheet}>
-      {/* Sticky block (title + sort + summary) */}
       <div style={stickyWrap}>
         <div style={pill} />
         <div style={headerRow}>
@@ -663,7 +615,6 @@ function BottomSheet({ open, onClose, data }) {
           </div>
           <button style={closeBtn} onClick={onClose}>Close</button>
         </div>
-
         <div style={summaryGrid}>
           <div style={sumCell}>
             <div style={sumLabel}>Down</div>
@@ -692,26 +643,22 @@ function BottomSheet({ open, onClose, data }) {
           </div>
         </div>
       </div>
-
-      {/* Scrolling list content */}
-      <div style={listWrap}>
+      <div style={{ padding: 16, paddingTop: 10 }}>
         {!sortedItems.length && (
           <div style={{ color:'#64748b', fontSize:13 }}>
             No measurements in this hex (after filters).
           </div>
         )}
-
         {!!sortedItems.length && (
-          <div style={list}>
+          <div style={{ display: 'grid', gap: 10 }}>
             {sortedItems.map((m, i) => {
               const ts = m?.timestamp ? new Date(m.timestamp) : null;
               const tsStr = ts ? ts.toLocaleString() : '—';
               const key = `${m.id || m.measurement_id || 'm'}-${m.timestamp || i}-${m.loc_id || i}`;
               const type = (m?.type || '').toLowerCase();
               const serverShort = m.__stats?.meta?.server ? m.__stats.meta.server.split('.')[0] : null;
-
               return (
-                <div key={key} style={row}>
+                <div key={key} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: 10, display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center', gap: 8 }}>
                   <div>
                     <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: '#0f172a' }}>
@@ -719,10 +666,10 @@ function BottomSheet({ open, onClose, data }) {
                       </div>
                       <TypeBadge type={type} />
                     </div>
-                    <div style={when}>{tsStr}</div>
-                    {serverShort && <div style={subtle}>Server: {serverShort}</div>}
+                    <div style={{ fontSize: 12, color: '#475569' }}>{tsStr}</div>
+                    {serverShort && <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>Server: {serverShort}</div>}
                   </div>
-                  <div style={statsBox}>{renderTypeSpecific(m)}</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>{renderTypeSpecific(m)}</div>
                 </div>
               );
             })}
@@ -733,13 +680,10 @@ function BottomSheet({ open, onClose, data }) {
   );
 }
 
-// ------------------------------- MAP -----------------------------------------
 export default function HexMap({
   mode = 'hex',
-  // filters (props may come from App)
   typeFilters = { all: true, upload: { enabled: false, mode: 'all', threshold: '' }, download: { enabled: false, mode: 'all', threshold: '' }, latency: { enabled: false, mode: 'all', threshold: '' } },
-  // hardcoded lists: default to ALL ON
-  connTypes = ['4G','5G'],                  // NOTE: 'Other' can be included from the UI too
+  connTypes = ['4G','5G'],
   providers = ['AT&T','T-Mobile','Verizon','Other'],
   dateRange = { preset: 'all', start: '', end: '' },
   onPointClick = () => {},
@@ -756,11 +700,9 @@ export default function HexMap({
   useEffect(()=>{ rowsAllRef.current = rowsAll; }, [rowsAll]);
   useEffect(()=>{ modeRef.current = mode; }, [mode]);
 
-  // ---------- date bounds ----------
   const dateBounds = useMemo(() => {
     const now = new Date();
     let start = null, end = null;
-
     switch (dateRange?.preset) {
       case '1m': {
         start = new Date(now);
@@ -789,17 +731,14 @@ export default function HexMap({
         break;
       }
     }
-
     flog('dateBounds computed', {
       preset: dateRange?.preset,
       start: start?.toISOString?.() || null,
       end: end?.toISOString?.() || null,
     });
-
     return { start, end };
   }, [dateRange]);
 
-  // ---------- filter passes + diagnostics ----------
   const typePass = (row) => {
     const t = String(row?.type || '').toLowerCase();
     if (typeFilters?.all) return true;
@@ -828,10 +767,9 @@ export default function HexMap({
     return ['upload','download','latency'].some(k => check(k));
   };
 
-  // Connection type filter using canonical row.__conn ('4G'|'5G'|'Other')
   const connPass = (row) => {
     const selected = new Set(connTypes || []);
-    if (selected.size === 0) return true; // none checked => no filtering
+    if (selected.size === 0) return true;
     const tag = row?.__conn || 'Other';
     return selected.has(tag);
   };
@@ -843,7 +781,7 @@ export default function HexMap({
   };
 
   const datePass = (row) => {
-    if (!dateBounds.start && !dateBounds.end) return true; // all time
+    if (!dateBounds.start && !dateBounds.end) return true;
     const ts = row?.timestamp ? new Date(row.timestamp) : null;
     if (!ts || isNaN(ts.getTime())) return false;
     if (dateBounds.start && ts < dateBounds.start) return false;
@@ -851,7 +789,6 @@ export default function HexMap({
     return true;
   };
 
-  // Helper: histograms & pretty counters
   function histBy(arr, keyFn) {
     const m = new Map();
     for (const x of arr) {
@@ -870,7 +807,6 @@ export default function HexMap({
     const provAfter   = histBy(after,  r => r.__providerBucket || normalizeProviderBucket(r.provider));
     const connBefore  = histBy(before, r => r.__conn || 'Other');
     const connAfter   = histBy(after,  r => r.__conn || 'Other');
-
     flog('FILTER SUMMARY', {
       counts: { before: before.length, after: after.length, excluded: drops.total },
       dropsByReason: drops.byReason,
@@ -890,26 +826,21 @@ export default function HexMap({
     }
   }
 
-  // Apply filters + build diagnostics
   const rowsFiltered = useMemo(() => {
     const src = rowsAll || [];
-
     const drops = {
       total: 0,
       byReason: { provider: 0, connection: 0, date: 0, type: 0, multi: 0 },
       samples: [],
     };
-
     const pass = [];
-    const MAX_EX_SAMPLES = 100; // cap
-
+    const MAX_EX_SAMPLES = 100;
     for (const r of src) {
       const reasons = [];
       if (!providerPass(r)) reasons.push('provider');
       if (!connPass(r))     reasons.push('connection');
       if (!datePass(r))     reasons.push('date');
       if (!typePass(r))     reasons.push('type');
-
       if (reasons.length === 0) {
         pass.push(r);
       } else {
@@ -927,12 +858,10 @@ export default function HexMap({
         }
       }
     }
-
     logFilterSummary(src, pass, drops);
     return pass;
   }, [rowsAll, typeFilters, providers, connTypes, dateBounds]);
 
-  // ------------------- hex aggregation & drawing ------------------------------
   function aggregateIntoHexes(rowsArg, cellIdxsSet) {
     const counts = new Map();
     const itemsByCell = new Map();
@@ -999,15 +928,21 @@ export default function HexMap({
     setSheetOpen(true);
   };
 
-  // ---------------------------- map lifecycle --------------------------------
   useEffect(() => {
     if (!mapEl.current || mapRef.current) return;
     dlog('H3 version?', h3.VERSION || h3.version || '(unknown)', 'has polygonToCells?', typeof h3.polygonToCells);
     dlog('Mapbox token present?', !!import.meta.env.VITE_MAPBOX_TOKEN);
     mapboxgl.accessToken = import.meta.env.VITE_MAPBOX_TOKEN;
-
     const map = new mapboxgl.Map({ container: mapEl.current, style: 'mapbox://styles/mapbox/light-v11', center: [-84.396, 33.777], zoom: 11, interactive: true });
     mapRef.current = map;
+
+    const canvas = map.getCanvas();
+    const onLost = (e) => { e.preventDefault(); };
+    const onRestored = () => { try { map.resize(); map.triggerRepaint?.(); } catch {} };
+    try {
+      canvas.addEventListener('webglcontextlost', onLost, false);
+      canvas.addEventListener('webglcontextrestored', onRestored, false);
+    } catch {}
 
     map.on('load', async () => {
       map.doubleClickZoom.disable();
@@ -1082,14 +1017,18 @@ export default function HexMap({
     map.on('error', (e) => derr('[Mapbox] error:', e?.error || e));
 
     return () => {
+      try {
+        const canvas2 = map.getCanvas();
+        canvas2.removeEventListener('webglcontextlost', onLost, false);
+        canvas2.removeEventListener('webglcontextrestored', onRestored, false);
+      } catch {}
       try { map.remove(); } catch {}
       mapRef.current = null;
       setMapReady(false);
       cellItemsRef.current = new Map();
     };
-  }, [mode]);
+  }, []);
 
-  // Update sources on filtered changes
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1098,7 +1037,6 @@ export default function HexMap({
     flog('apply filtered to map', { rowsFiltered: rowsFiltered.length, rowsAll: rowsAll.length });
   }, [rowsFiltered, mapReady]);
 
-  // Mode toggles
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1106,6 +1044,17 @@ export default function HexMap({
     redrawHexes(map, rowsFiltered, mode);
     flog('mode change', { mode });
   }, [mapReady, mode, rowsFiltered]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    let n = 0;
+    const kick = () => {
+      try { map.resize(); map.triggerRepaint?.(); } catch {}
+      if (++n < 3) requestAnimationFrame(kick);
+    };
+    if (sheetOpen) requestAnimationFrame(kick);
+  }, [sheetOpen]);
 
   return (
     <>
