@@ -44,6 +44,7 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_DASHBOARD_SECRET: ${{ secrets.VITE_DASHBOARD_SECRET }}
+          VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
 
       - name: SPA fallback
         run: cp dist/index.html dist/404.html || true
