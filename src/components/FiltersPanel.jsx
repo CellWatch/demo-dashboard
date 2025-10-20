@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 /**
  * Props:
@@ -14,6 +14,7 @@ import React from 'react';
  * - setCustomStartDate(fn)
  * - customEndDate: string
  * - setCustomEndDate(fn)
+ * - onExportAll: () => Promise<void> | void
  */
 export default function FiltersPanel({
   typeFilters,
@@ -28,7 +29,15 @@ export default function FiltersPanel({
   setCustomStartDate,
   customEndDate,
   setCustomEndDate,
+  onExportAll,
 }) {
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    console.log('[FiltersPanel] mounted. onExportAll present?', !!onExportAll);
+    return () => console.log('[FiltersPanel] unmounted');
+  }, [onExportAll]);
+
   const tidyNumber = (raw) => {
     const v = (raw ?? '').toString().replace(/[^\d.]/g, '');
     const parts = v.split('.');
@@ -69,21 +78,43 @@ export default function FiltersPanel({
     setTypeFilters((prev) => ({ ...prev, [key]: { ...prev[key], threshold: cleaned } }));
   };
 
-  /* -------- Connection Type (hardcoded) -------- */
-  const ALL_CONN = ['4G', '5G', 'Other'];
-
+  /* -------- Connection Type -------- */
   const toggleConn = (label) => {
     setConnTypes((prev) =>
       prev.includes(label) ? prev.filter((v) => v !== label) : [...prev, label]
     );
   };
 
-  /* -------- Providers (hardcoded) -------- */
-  const ALL_PROVIDERS = ['AT&T', 'T-Mobile', 'Verizon', 'Other'];
+  /* -------- Providers -------- */
   const toggleProvider = (p) => {
     setSelectedProviders((prev) =>
       prev.includes(p) ? prev.filter((v) => v !== p) : [...prev, p]
     );
+  };
+
+  /* -------- Export handler with logs + loading -------- */
+  const handleExport = async () => {
+    console.log('[FiltersPanel] Export button CLICKED');
+    if (!onExportAll) {
+      console.error('[FiltersPanel] onExportAll is not provided. Export aborted.');
+      alert('Export isn’t ready yet. Try again in a moment.');
+      return;
+    }
+    try {
+      console.log('[FiltersPanel] Export started… setting loading=true');
+      setLoading(true);
+      const maybePromise = onExportAll();
+      if (maybePromise && typeof maybePromise.then === 'function') {
+        await maybePromise;
+      }
+      console.log('[FiltersPanel] Export finished.');
+    } catch (e) {
+      console.error('[FiltersPanel] Export failed:', e);
+      alert('Export failed. Check the console for details.');
+    } finally {
+      setLoading(false);
+      console.log('[FiltersPanel] loading=false');
+    }
   };
 
   /* -------- Render helpers -------- */
@@ -101,7 +132,6 @@ export default function FiltersPanel({
           <span>{label}</span>
         </label>
 
-        {/* Subfilter: indented, each option on its own line */}
         {tf.enabled && !typeFilters?.all && (
           <div className="subgroup">
             <div className="radios-vert">
@@ -179,8 +209,6 @@ export default function FiltersPanel({
       {/* Data Type */}
       <section className="filter-subsection">
         <div className="filter-subsection-title">Data Type</div>
-
-        {/* All */}
         <label className="check">
           <input
             type="checkbox"
@@ -189,14 +217,11 @@ export default function FiltersPanel({
           />
           <span>All data types</span>
         </label>
-
-        {/* Vertical list of types */}
         <div className="types-vert">
           <TypeRow typeKey="upload" label="Upload" />
           <TypeRow typeKey="download" label="Download" />
           <TypeRow typeKey="latency" label="Latency" unit="ms" />
         </div>
-
         {typeFilters?.all && (
           <div className="muted">
             Showing all measurements.
@@ -204,11 +229,11 @@ export default function FiltersPanel({
         )}
       </section>
 
-      {/* Connection Type (vertical, with 'Other') */}
+      {/* Connection Type */}
       <section className="filter-subsection">
         <div className="filter-subsection-title">Connection Type</div>
         <div className="checks-vert">
-          {ALL_CONN.map((label) => (
+          {['4G', '5G', 'Other'].map((label) => (
             <label key={label} className="check">
               <input
                 type="checkbox"
@@ -221,7 +246,7 @@ export default function FiltersPanel({
         </div>
       </section>
 
-      {/* Provider (hardcoded) */}
+      {/* Provider */}
       <section className="filter-subsection">
         <div className="filter-subsection-title">Provider</div>
         <div className="providers-list">
@@ -242,70 +267,25 @@ export default function FiltersPanel({
       <section className="filter-subsection">
         <div className="filter-subsection-title">Date</div>
         <div className="radios-vert">
-          <label className="radio radio-line">
-            <span className="radio-head">
-              <input
-                type="radio"
-                name="dateRange"
-                value="all"
-                checked={dateRange === 'all'}
-                onChange={(e) => setDateRange(e.target.value)}
-              />
-              <span>All time</span>
-            </span>
-          </label>
-
-          <label className="radio radio-line">
-            <span className="radio-head">
-              <input
-                type="radio"
-                name="dateRange"
-                value="1m"
-                checked={dateRange === '1m'}
-                onChange={(e) => setDateRange(e.target.value)}
-              />
-              <span>Past month</span>
-            </span>
-          </label>
-
-          <label className="radio radio-line">
-            <span className="radio-head">
-              <input
-                type="radio"
-                name="dateRange"
-                value="6m"
-                checked={dateRange === '6m'}
-                onChange={(e) => setDateRange(e.target.value)}
-              />
-              <span>Past 6 months</span>
-            </span>
-          </label>
-
-          <label className="radio radio-line">
-            <span className="radio-head">
-              <input
-                type="radio"
-                name="dateRange"
-                value="1y"
-                checked={dateRange === '1y'}
-                onChange={(e) => setDateRange(e.target.value)}
-              />
-              <span>Past year</span>
-            </span>
-          </label>
-
-          <label className="radio radio-line">
-            <span className="radio-head">
-              <input
-                type="radio"
-                name="dateRange"
-                value="custom"
-                checked={dateRange === 'custom'}
-                onChange={(e) => setDateRange(e.target.value)}
-              />
-              <span>Custom range</span>
-            </span>
-          </label>
+          {['all','1m','6m','1y','custom'].map((val) => (
+            <label key={val} className="radio radio-line">
+              <span className="radio-head">
+                <input
+                  type="radio"
+                  name="dateRange"
+                  value={val}
+                  checked={dateRange === val}
+                  onChange={(e) => setDateRange(e.target.value)}
+                />
+                <span>
+                  {val === 'all' ? 'All time' :
+                   val === '1m' ? 'Past month' :
+                   val === '6m' ? 'Past 6 months' :
+                   val === '1y' ? 'Past year' : 'Custom range'}
+                </span>
+              </span>
+            </label>
+          ))}
 
           {dateRange === 'custom' && (
             <div className="date-range">
@@ -328,6 +308,29 @@ export default function FiltersPanel({
             </div>
           )}
         </div>
+      </section>
+
+      {/* Export */}
+      <section className="filter-subsection">
+        <button
+          className="export-btn"
+          onClick={handleExport}
+          onMouseDown={() => console.log('[FiltersPanel] Export button mousedown')}
+          disabled={loading}
+          style={{
+            width:'100%',
+            padding:'10px 12px',
+            background: loading ? '#777777' : '#1E5638',
+            color:'#FFFFFF',
+            border:'1px solid #1E5638',
+            borderRadius:8,
+            cursor: loading ? 'default' : 'pointer',
+            fontWeight:700
+          }}
+          aria-busy={loading ? 'true' : 'false'}
+        >
+          {loading ? 'Exporting CSV… (please wait)' : 'Export filtered CSV'}
+        </button>
       </section>
     </aside>
   );

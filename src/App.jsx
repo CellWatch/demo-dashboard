@@ -53,15 +53,27 @@ export default function App() {
 
   const [selectedMeasurement, setSelectedMeasurement] = useState(null);
 
+  // ---- Export wiring ----
+  const [exportAllFn, setExportAllFn] = useState(null);
+
+  const handleExportAll = () => {
+    console.log('[App] handleExportAll invoked. exportAllFn present?', !!exportAllFn);
+    if (!exportAllFn) {
+      console.error('[App] No export function registered yet.');
+      throw new Error('Export function not ready');
+    }
+    return exportAllFn(); // may return void or a Promise
+  };
+
   return (
     <div id="root">
-      {}
+      {/* Control bar */}
       <div className="control-bar">
         <SearchBar />
         <ModeSlider mode={mode} setMode={setMode} />
       </div>
 
-      {}
+      {/* Filters panel */}
       <FiltersPanel
         typeFilters={typeFilters}
         setTypeFilters={setTypeFilters}
@@ -69,16 +81,16 @@ export default function App() {
         setConnTypes={setConnTypes}
         selectedProviders={providers}
         setSelectedProviders={setProviders}
-
         dateRange={dateRange}
         setDateRange={setDateRange}
         customStartDate={customStartDate}
         setCustomStartDate={setCustomStartDate}
         customEndDate={customEndDate}
         setCustomEndDate={setCustomEndDate}
+        onExportAll={handleExportAll}
       />
 
-      {}
+      {/* Map */}
       <div id="map">
         <HexMap
           mode={mode}
@@ -87,10 +99,14 @@ export default function App() {
           providers={providers}
           dateRange={{ preset: dateRange, start: customStartDate, end: customEndDate }}
           onPointClick={setSelectedMeasurement}
+          onRegisterExport={(fn) => {
+            console.log('[App] onRegisterExport called. Setting exportAllFn.');
+            setExportAllFn(() => fn);
+          }}
         />
       </div>
 
-      {}
+      {/* Sliding panel */}
       {selectedMeasurement && (
         <SlidingPanel
           measurement={selectedMeasurement}
