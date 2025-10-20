@@ -106,25 +106,6 @@ function setVis(map, layerId, visible) {
   map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none');
 }
 
-function applyModeVisibility(map, mode) {
-  const showHex = mode === 'hex';
-  const showDot = !showHex;
-  setVis(map, 'hex-outline', showHex);
-  setVis(map, 'hex-fill-active', showHex);
-  setVis(map, 'hex-count-bubble', showHex);
-  setVis(map, 'hex-count-label', showHex);
-
-  // selection overlays follow hex visibility
-  setVis(map, 'hex-selected-fill', showHex);
-  setVis(map, 'hex-selected-outline', showHex);
-  setVis(map, 'hex-selected-bubble', showHex);
-  setVis(map, 'hex-selected-label', showHex);
-
-  setVis(map, 'clusters', showDot);
-  setVis(map, 'cluster-count', showDot);
-  setVis(map, 'unclustered-point', showDot);
-}
-
 function viewportLoops(map) {
   const b = map.getBounds();
   const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth();
@@ -483,42 +464,6 @@ function deriveConnTag(meas, genHint) {
   return 'Other';
 }
 
-async function fetchViewportRows(map) {
-  const b = map.getBounds();
-  const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth();
-  const locs = await fetchLocationsInBox({ south, west, north, east });
-  if (!locs?.length) return [];
-  const measIds = locs.map(l => l.measurement_id);
-  const measMap = await fetchMeasurementsByIds(measIds);
-  const cellsMap = await fetchCellsByMeasurementIds(measIds);
-
-  const rows = locs.map(l => {
-    const m = measMap.get(l.measurement_id) || { id: l.measurement_id };
-    const base = {
-      loc_id: l.id,
-      id: m.id,
-      timestamp: m.timestamp || null,
-      provider: m.provider || null,
-      type: m.type || null,
-      upload_download_data: m.upload_download_data,
-      latency_data: m.latency_data,
-      extra_data: m.extra_data,
-      lat: Number(l.lat),
-      lon: Number(l.lon),
-    };
-
-    const genHint = cellsMap.get(l.measurement_id) || null;
-    const __stats = extractStats(base);
-    const __conn = deriveConnTag(base, genHint);
-    const __providerBucket = normalizeProviderBucket(base.provider);
-
-    return { ...base, __stats, __conn, __providerBucket };
-  });
-
-  flog('fetchViewportRows result', { count: rows.length, bbox: { west, east, south, north } });
-  return rows;
-}
-
 /* ---------- Selection overlay color helpers ---------- */
 function applySelectionColors(map/*, dominantType */) {
   if (!map) return;
@@ -538,8 +483,6 @@ function applySelectionColors(map/*, dominantType */) {
     map.setPaintProperty('hex-selected-label', 'text-halo-width', 1.5);
   }
 }
-
-
 
 /* ------------------ RightPanel (drawer with details) ------------------ */
 function RightPanel({ open, onClose, data, width = 420 }) {
@@ -828,6 +771,10 @@ export default function HexMap({
   const rowsAllRef = useRef([]);
   const modeRef = useRef(mode);
   const [exporting, setExporting] = useState(false);
+
+  // NEW: keep latest filtered rows for cluster click
+  const rowsFilteredRef = useRef([]);
+
   useEffect(()=>{ rowsAllRef.current = rowsAll; }, [rowsAll]);
   useEffect(()=>{ modeRef.current = mode; }, [mode]);
   useEffect(()=>{ selectedIdxRef.current = selectedIdx; }, [selectedIdx]);
@@ -916,6 +863,9 @@ export default function HexMap({
     flog('apply filtered to map', { rowsFiltered: pass.length, rowsAll: src.length });
     return pass;
   }, [rowsAll, typeFilters, providers, connTypes, dateBounds]);
+
+  // keep ref synced
+  useEffect(() => { rowsFilteredRef.current = rowsFiltered; }, [rowsFiltered]);
 
   // ---------- map wiring ----------
   function aggregateIntoHexes(rowsArg, cellIdxsSet) {
@@ -1022,6 +972,87 @@ export default function HexMap({
     applySelectionColors(map, domType);
   }
 
+  // ---------- NEW: zoom-aware mode visibility ----------
+  function applyModeVisibility(map, currentMode) {
+    if (!map) return;
+    const hexZoomOk = shouldRenderHexes(map);   // within [HEX_ZOOM_MIN, HEX_ZOOM_MAX]
+    const wantHex   = currentMode === 'hex';
+    const showHex   = wantHex && hexZoomOk;
+    const showDot   = !showHex;
+
+    // hex family
+    setVis(map, 'hex-outline', showHex);
+    setVis(map, 'hex-fill-active', showHex);
+    setVis(map, 'hex-count-bubble', showHex);
+    setVis(map, 'hex-count-label', showHex);
+
+    // selection overlays follow hex visibility
+    setVis(map, 'hex-selected-fill', showHex);
+    setVis(map, 'hex-selected-outline', showHex);
+    setVis(map, 'hex-selected-bubble', showHex);
+    setVis(map, 'hex-selected-label', showHex);
+
+    // points/clusters
+    setVis(map, 'clusters', showDot);
+    setVis(map, 'cluster-count', showDot);
+    setVis(map, 'unclustered-point', showDot);
+  }
+
+  // --- helpers for cluster click -> panel with actual leaves ---
+  function getClusterLeavesAsync(source, clusterId, limit = 10000, offset = 0) {
+    return new Promise((resolve, reject) => {
+      try {
+        source.getClusterLeaves(clusterId, limit, offset, (err, features) => {
+          if (err) reject(err);
+          else resolve(features || []);
+        });
+      } catch (e) { reject(e); }
+    });
+  }
+
+  function pickMajorityHex(items, fallbackIdx = null) {
+    const counts = new Map();
+    for (const r of items || []) {
+      if (!Number.isFinite(r?.lat) || !Number.isFinite(r?.lon)) continue;
+      const idx = h3.latLngToCell(Number(r.lat), Number(r.lon), HEX_RES);
+      counts.set(idx, (counts.get(idx) || 0) + 1);
+    }
+    if (!counts.size) return fallbackIdx;
+    let best = null, bestCnt = -1;
+    for (const [idx, cnt] of counts.entries()) {
+      if (cnt > bestCnt) { best = idx; bestCnt = cnt; }
+    }
+    return best || fallbackIdx;
+  }
+
+  async function openClusterSheetFromFeature(map, feature, clickLngLat) {
+    try {
+      const src = map.getSource('points');
+      if (!src || !feature?.properties?.cluster_id) return;
+
+      const clusterId = feature.properties.cluster_id;
+      const leaves = await getClusterLeavesAsync(src, clusterId, 10000, 0);
+      const ids = new Set(leaves.map(f => f?.properties?.id).filter(Boolean));
+
+      // respect current filters
+      const items = (rowsFilteredRef.current || []).filter(r => ids.has(r.id));
+
+      // representative hex for header/selection
+      const fallbackIdx = clickLngLat
+        ? h3.latLngToCell(clickLngLat.lat, clickLngLat.lng, HEX_RES)
+        : null;
+      const idx = pickMajorityHex(items, fallbackIdx);
+
+      const payload = buildSheetData(idx, items);
+      setPanelData(payload);
+      setPanelOpen(true);
+      setSelectedIdx(idx);
+      updateSelectionOverlay(mapRef.current, idx);
+    } catch (e) {
+      derr('[clusters] open sheet failed:', e);
+    }
+  }
+
   // 🔧 INIT MAP ONLY ONCE — do not depend on `mode` here or the map will reset on toggle
   useEffect(() => {
     if (!mapEl.current || mapRef.current) return;
@@ -1105,17 +1136,25 @@ export default function HexMap({
         setRowsAll(initialRows);
         safeSetGeoJSON(map, 'points', rowsToPointFeatures(initialRows));
         redrawHexes(map, initialRows, modeRef.current);
-        applyModeVisibility(map, modeRef.current);
+        applyModeVisibility(map, modeRef.current);   // zoom-aware flip on init
         updateSelectionOverlay(map, selectedIdxRef.current);
         setMapReady(true);
         flog('initial viewport', { rowsAll: initialRows.length });
       });
 
       const stop = (e) => { e.preventDefault?.(); e.originalEvent?.preventDefault?.(); e.originalEvent?.stopPropagation?.(); };
-      const openSheetForLngLat = (lngLat) => { const idx = h3.latLngToCell(lngLat.lat, lngLat.lng, HEX_RES); openHexSheet(idx); };
 
-      map.on('click', 'clusters', (e) => { stop(e); openSheetForLngLat(e.lngLat); });
-      map.on('click', 'cluster-count', (e) => { stop(e); openSheetForLngLat(e.lngLat); });
+      map.on('click', 'clusters', async (e) => {
+        stop(e);
+        const f = e.features?.[0];
+        await openClusterSheetFromFeature(map, f, e.lngLat);
+      });
+
+      map.on('click', 'cluster-count', async (e) => {
+        stop(e);
+        const f = e.features?.[0];
+        await openClusterSheetFromFeature(map, f, e.lngLat);
+      });
 
       map.on('click', 'unclustered-point', (e) => {
         stop(e);
@@ -1154,6 +1193,12 @@ export default function HexMap({
       };
       map.on('moveend', refresh);
       map.on('zoomend', refresh);
+
+      // flip layers on zoom boundary crossings (and ensure hex paint sync)
+      map.on('zoomend', () => {
+        applyModeVisibility(map, modeRef.current);
+        redrawHexes(map, rowsAllRef.current, modeRef.current);
+      });
     });
 
     map.on('error', (e) => derr('[Mapbox] error:', e?.error || e));
@@ -1165,7 +1210,43 @@ export default function HexMap({
       cellItemsRef.current = new Map();
     };
     // IMPORTANT: init once — do NOT depend on `mode`, or map will reset on toggle
-  }, []); // ← changed from [mode] to []
+  }, []); // ← init once
+
+  async function fetchViewportRows(map) {
+    const b = map.getBounds();
+    const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth();
+    const locs = await fetchLocationsInBox({ south, west, north, east });
+    if (!locs?.length) return [];
+    const measIds = locs.map(l => l.measurement_id);
+    const measMap = await fetchMeasurementsByIds(measIds);
+    const cellsMap = await fetchCellsByMeasurementIds(measIds);
+
+    const rows = locs.map(l => {
+      const m = measMap.get(l.measurement_id) || { id: l.measurement_id };
+      const base = {
+        loc_id: l.id,
+        id: m.id,
+        timestamp: m.timestamp || null,
+        provider: m.provider || null,
+        type: m.type || null,
+        upload_download_data: m.upload_download_data,
+        latency_data: m.latency_data,
+        extra_data: m.extra_data,
+        lat: Number(l.lat),
+        lon: Number(l.lon),
+      };
+
+      const genHint = cellsMap.get(l.measurement_id) || null;
+      const __stats = extractStats(base);
+      const __conn = deriveConnTag(base, genHint);
+      const __providerBucket = normalizeProviderBucket(base.provider);
+
+      return { ...base, __stats, __conn, __providerBucket };
+    });
+
+    flog('fetchViewportRows result', { count: rows.length, bbox: { west, east, south, north } });
+    return rows;
+  }
 
   const openHexSheet = (idx) => {
     if (!idx) return;
@@ -1199,6 +1280,7 @@ export default function HexMap({
     if (!map || !mapReady) return;
     safeSetGeoJSON(map, 'points', rowsToPointFeatures(rowsFiltered));
     redrawHexes(map, rowsFiltered, modeRef.current);
+    applyModeVisibility(map, modeRef.current);            // ensure correct family shown after data/filter updates
     updateSelectionOverlay(map, selectedIdxRef.current);
   }, [rowsFiltered, mapReady]);
 
