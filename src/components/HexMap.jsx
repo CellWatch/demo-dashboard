@@ -1022,32 +1022,7 @@ export default function HexMap({
     applySelectionColors(map, domType);
   }
 
-  const openHexSheet = (idx) => {
-    if (!idx) return;
-    const items =
-      cellItemsRef.current.get(idx) ||
-      (rowsFiltered || []).filter(r => h3.latLngToCell(Number(r.lat), Number(r.lon), HEX_RES) === idx);
-    const payload = buildSheetData(idx, items);
-    setPanelData(payload);
-    setPanelOpen(true);
-    setSelectedIdx(idx);
-    updateSelectionOverlay(mapRef.current, idx);
-  };
-
-  const openDotSheet = (lng, lat, clickedId) => {
-    const idx = h3.latLngToCell(lat, lng, HEX_RES);
-    const allInHex =
-      cellItemsRef.current.get(idx) ||
-      (rowsFiltered || []).filter(r => h3.latLngToCell(Number(r.lat), Number(r.lon), HEX_RES) === idx);
-    const clicked = clickedId ? allInHex.find(m => m.id === clickedId) : null;
-    const items = clicked ? [clicked, ...allInHex.filter(m => m.id !== clicked.id)] : allInHex;
-    const payload = buildSheetData(idx, items);
-    setPanelData(payload);
-    setPanelOpen(true);
-    setSelectedIdx(idx);
-    updateSelectionOverlay(mapRef.current, idx);
-  };
-
+  // 🔧 INIT MAP ONLY ONCE — do not depend on `mode` here or the map will reset on toggle
   useEffect(() => {
     if (!mapEl.current || mapRef.current) return;
     dlog('H3 version?', h3.VERSION || h3.version || '(unknown)', 'has polygonToCells?', typeof h3.polygonToCells);
@@ -1189,8 +1164,36 @@ export default function HexMap({
       setMapReady(false);
       cellItemsRef.current = new Map();
     };
-  }, [mode]);
+    // IMPORTANT: init once — do NOT depend on `mode`, or map will reset on toggle
+  }, []); // ← changed from [mode] to []
 
+  const openHexSheet = (idx) => {
+    if (!idx) return;
+    const items =
+      cellItemsRef.current.get(idx) ||
+      (rowsFiltered || []).filter(r => h3.latLngToCell(Number(r.lat), Number(r.lon), HEX_RES) === idx);
+    const payload = buildSheetData(idx, items);
+    setPanelData(payload);
+    setPanelOpen(true);
+    setSelectedIdx(idx);
+    updateSelectionOverlay(mapRef.current, idx);
+  };
+
+  const openDotSheet = (lng, lat, clickedId) => {
+    const idx = h3.latLngToCell(lat, lng, HEX_RES);
+    const allInHex =
+      cellItemsRef.current.get(idx) ||
+      (rowsFiltered || []).filter(r => h3.latLngToCell(Number(r.lat), Number(r.lon), HEX_RES) === idx);
+    const clicked = clickedId ? allInHex.find(m => m.id === clickedId) : null;
+    const items = clicked ? [clicked, ...allInHex.filter(m => m.id !== clicked.id)] : allInHex;
+    const payload = buildSheetData(idx, items);
+    setPanelData(payload);
+    setPanelOpen(true);
+    setSelectedIdx(idx);
+    updateSelectionOverlay(mapRef.current, idx);
+  };
+
+  // reflect filtered rows on map
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1199,6 +1202,7 @@ export default function HexMap({
     updateSelectionOverlay(map, selectedIdxRef.current);
   }, [rowsFiltered, mapReady]);
 
+  // toggle visibility without recreating the map
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
