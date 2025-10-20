@@ -520,22 +520,26 @@ async function fetchViewportRows(map) {
 }
 
 /* ---------- Selection overlay color helpers ---------- */
-function applySelectionColors(map, dominantType) {
+function applySelectionColors(map/*, dominantType */) {
   if (!map) return;
-  const c = TYPE_COLORS[dominantType] || TYPE_COLORS.default;
+
+  const outline = PALETTE.greenDark;
+  const fill    = PALETTE.green;
 
   if (map.getLayer('hex-selected-outline')) {
-    map.setPaintProperty('hex-selected-outline', 'line-color', c.outline);
+    map.setPaintProperty('hex-selected-outline', 'line-color', outline);
   }
-
   if (map.getLayer('hex-selected-fill')) {
-    map.setPaintProperty('hex-selected-fill', 'fill-color', c.fill);
+    map.setPaintProperty('hex-selected-fill', 'fill-color', fill);
   }
-
   if (map.getLayer('hex-selected-label')) {
-    map.setPaintProperty('hex-selected-label', 'text-halo-color', c.outline);
+    map.setPaintProperty('hex-selected-label', 'text-color', PALETTE.white);
+    map.setPaintProperty('hex-selected-label', 'text-halo-color', PALETTE.greenDark);
+    map.setPaintProperty('hex-selected-label', 'text-halo-width', 1.5);
   }
 }
+
+
 
 /* ------------------ RightPanel (drawer with details) ------------------ */
 function RightPanel({ open, onClose, data, width = 420 }) {
