@@ -2,17 +2,8 @@ import React, { useState } from 'react';
 import HexMap from './components/HexMap';
 import SlidingPanel from './components/SlidingPanel';
 import FiltersPanel from './components/FiltersPanel';
+import SearchBar from './components/SearchBar';
 import './style.css';
-
-function SearchBar() {
-  return (
-    <input
-      type="text"
-      placeholder="Search location…"
-      className="search-input"
-    />
-  );
-}
 
 function ModeSlider({ mode, setMode }) {
   const value = mode === 'hex' ? 1 : 0;
@@ -32,7 +23,6 @@ function ModeSlider({ mode, setMode }) {
 export default function App() {
   const [mode, setMode] = useState('hex');
 
-  // ---- Data types ----
   const [typeFilters, setTypeFilters] = useState({
     all: true,
     upload:   { enabled: false, mode: 'all', threshold: '' },
@@ -40,40 +30,42 @@ export default function App() {
     latency:  { enabled: false, mode: 'all', threshold: '' },
   });
 
-  // ---- Connection Types ----
   const [connTypes, setConnTypes] = useState(['4G', '5G', 'Other']);
-
-  // ---- Providers ----
   const [providers, setProviders] = useState(['AT&T', 'T-Mobile', 'Verizon', 'Other']);
 
-  // ---- Date range ----
   const [dateRange, setDateRange] = useState('all');
   const [customStartDate, setCustomStartDate] = useState('');
   const [customEndDate, setCustomEndDate] = useState('');
 
   const [selectedMeasurement, setSelectedMeasurement] = useState(null);
 
-  // ---- Export wiring ----
   const [exportAllFn, setExportAllFn] = useState(null);
 
+  // Search ↔ HexMap bridge
+  const [searchFns, setSearchFns] = useState({
+    getMapCenter: null,
+    onPick: null,
+    onPickHex: null
+  });
+
   const handleExportAll = () => {
-    console.log('[App] handleExportAll invoked. exportAllFn present?', !!exportAllFn);
-    if (!exportAllFn) {
-      console.error('[App] No export function registered yet.');
-      throw new Error('Export function not ready');
-    }
-    return exportAllFn(); // may return void or a Promise
+    if (!exportAllFn) throw new Error('Export function not ready');
+    return exportAllFn();
   };
 
   return (
     <div id="root">
-      {/* Control bar */}
-      <div className="control-bar">
-        <SearchBar />
+      {/* Control bar with Search (left) and Mode slider (right) */}
+      <div className="control-bar control-bar-row">
+        <SearchBar
+          inline
+          getMapCenter={searchFns.getMapCenter || undefined}
+          onPick={searchFns.onPick || undefined}
+          onPickHex={searchFns.onPickHex || undefined}
+        />
         <ModeSlider mode={mode} setMode={setMode} />
       </div>
 
-      {/* Filters panel */}
       <FiltersPanel
         typeFilters={typeFilters}
         setTypeFilters={setTypeFilters}
@@ -90,7 +82,6 @@ export default function App() {
         onExportAll={handleExportAll}
       />
 
-      {/* Map */}
       <div id="map">
         <HexMap
           mode={mode}
@@ -99,14 +90,11 @@ export default function App() {
           providers={providers}
           dateRange={{ preset: dateRange, start: customStartDate, end: customEndDate }}
           onPointClick={setSelectedMeasurement}
-          onRegisterExport={(fn) => {
-            console.log('[App] onRegisterExport called. Setting exportAllFn.');
-            setExportAllFn(() => fn);
-          }}
+          onRegisterExport={(fn) => setExportAllFn(() => fn)}
+          onRegisterSearch={(fns) => setSearchFns(fns)}
         />
       </div>
 
-      {/* Sliding panel */}
       {selectedMeasurement && (
         <SlidingPanel
           measurement={selectedMeasurement}

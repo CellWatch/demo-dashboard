@@ -34,6 +34,7 @@ body {
   padding: 0.5rem;
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  gap: 16px;  
 }
 .search-input {
   width: 200px;
@@ -273,7 +274,7 @@ hr { border: none; border-top: 1px solid #BABABA; margin: 0; }
 .date-range { display: grid; gap: 8px; margin-left: 26px; }
 .checks-vert { display: grid; gap: 6px; }
 
-/* Responsive */
+/* Responsive */  
 @media (max-width: 640px) {
   .filters-panel,
   .filter-control {

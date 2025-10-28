@@ -4,6 +4,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import * as h3 from 'h3-js';
 import { supabase } from '../utils/supabase';
+import SearchBar from './SearchBar'; // ← NEW
 
 const HEX_RES = 8;
 const HEX_ZOOM_MIN = 9.0;
@@ -32,61 +33,24 @@ const PALETTE = {
   green: '#1E5638',
   greenLight: '#C8E3CC',
   greenDark: '#003618',
-
   blue: '#1D4ED8',
   blueLight: '#DBEAFE',
   blueDark: '#0B2C8A',
-
   orange: '#EA580C',
   orangeLight: '#FFE7D6',
   orangeDark: '#9A3606',
-
   grey: '#777777',
   greyDark: '#464646',
   greyLight: '#BABABA',
-
   white: '#FFFFFF',
   black: '#000000',
 };
 
-// Brand-aligned per-type colors
 const TYPE_COLORS = {
-  upload: {
-    badgeBg: PALETTE.greenLight,
-    badgeText: PALETTE.greenDark,
-    tintBg: PALETTE.greenLight,
-    tintBorder: PALETTE.green,
-    bubble: PALETTE.greenDark,
-    outline: PALETTE.greenDark,
-    fill: PALETTE.green,
-  },
-  download: {
-    badgeBg: PALETTE.blueLight,
-    badgeText: PALETTE.blueDark,
-    tintBg: PALETTE.blueLight,
-    tintBorder: PALETTE.blue,
-    bubble: PALETTE.blueDark,
-    outline: PALETTE.blueDark,
-    fill: PALETTE.blue,
-  },
-  latency: {
-    badgeBg: PALETTE.orangeLight,
-    badgeText: PALETTE.orangeDark,
-    tintBg: PALETTE.orangeLight,
-    tintBorder: PALETTE.orange,
-    bubble: PALETTE.orangeDark,
-    outline: PALETTE.orangeDark,
-    fill: PALETTE.orange,
-  },
-  default: {
-    badgeBg: PALETTE.greyLight,
-    badgeText: PALETTE.greyDark,
-    tintBg: PALETTE.greyLight,
-    tintBorder: PALETTE.grey,
-    bubble: PALETTE.greyDark,
-    outline: PALETTE.greyDark,
-    fill: PALETTE.grey,
-  },
+  upload: { badgeBg: PALETTE.greenLight, badgeText: PALETTE.greenDark, tintBg: PALETTE.greenLight, tintBorder: PALETTE.green, bubble: PALETTE.greenDark, outline: PALETTE.greenDark, fill: PALETTE.green },
+  download: { badgeBg: PALETTE.blueLight, badgeText: PALETTE.blueDark, tintBg: PALETTE.blueLight, tintBorder: PALETTE.blue, bubble: PALETTE.blueDark, outline: PALETTE.blueDark, fill: PALETTE.blue },
+  latency: { badgeBg: PALETTE.orangeLight, badgeText: PALETTE.orangeDark, tintBg: PALETTE.orangeLight, tintBorder: PALETTE.orange, bubble: PALETTE.orangeDark, outline: PALETTE.orangeDark, fill: PALETTE.orange },
+  default: { badgeBg: PALETTE.greyLight, badgeText: PALETTE.greyDark, tintBg: PALETTE.greyLight, tintBorder: PALETTE.grey, bubble: PALETTE.greyDark, outline: PALETTE.greyDark, fill: PALETTE.grey },
 };
 
 const emptyFC = () => ({ type: 'FeatureCollection', features: [] });
@@ -467,10 +431,8 @@ function deriveConnTag(meas, genHint) {
 /* ---------- Selection overlay color helpers ---------- */
 function applySelectionColors(map/*, dominantType */) {
   if (!map) return;
-
   const outline = PALETTE.greenDark;
   const fill    = PALETTE.green;
-
   if (map.getLayer('hex-selected-outline')) {
     map.setPaintProperty('hex-selected-outline', 'line-color', outline);
   }
@@ -532,10 +494,7 @@ function RightPanel({ open, onClose, data, width = 420 }) {
         padding: 12,
         minWidth: 160
       }}>
-        {/* metric title */}
         <div style={{ fontSize: 12, color: '#6B7280' }}>{label}</div>
-
-        {/* vertically stacked stats */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {statRow('Average', fmtNum(obj?.avg))}
           {statRow('Min',     fmtNum(obj?.min))}
@@ -562,11 +521,9 @@ function RightPanel({ open, onClose, data, width = 420 }) {
     );
   };
 
-  // Export only the items currently shown in this panel
   const exportPanelCsv = () => {
     const rows = Array.isArray(items) ? items : [];
     const header = 'hex_idx,id,provider,type,timestamp,lat,lon,down_mbps,up_mbps,ping_ms,jitter_ms,loss_pct\n';
-
     const rowToCsvLine = (r) => {
       const s = r.__stats || extractStats(r);
       const vals = [
@@ -608,7 +565,7 @@ function RightPanel({ open, onClose, data, width = 420 }) {
     position: 'fixed',
     top: 0,
     bottom: 0,
-    right: 0,                          // RIGHT SIDE
+    right: 0,
     width,
     background: '#FFFFFF',
     boxShadow: '-2px 0 24px rgba(0,0,0,0.12)',
@@ -658,17 +615,16 @@ function RightPanel({ open, onClose, data, width = 420 }) {
   return (
     <div style={container} aria-hidden={!open}>
       <div style={header}>
-      <div style={titleLeft}>
-        <span style={dot} />
-        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-          <span style={{ color: '#1f2937', fontWeight: 600 }}>Hex {hexIdx}</span>
-          <span style={{ color: '#6b7280', fontWeight: 500 }}>
-            {summary.count} measurement{summary.count === 1 ? '' : 's'}
-          </span>
+        <div style={titleLeft}>
+          <span style={dot} />
+          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
+            <span style={{ color: '#1f2937', fontWeight: 600 }}>Hex {hexIdx}</span>
+            <span style={{ color: '#6b7280', fontWeight: 500 }}>
+              {summary.count} measurement{summary.count === 1 ? '' : 's'}
+            </span>
+          </div>
         </div>
-      </div>
 
-        {/* Actions */}
         <div style={{ display: 'flex', gap: 8 }}>
           <button
             onClick={exportPanelCsv}
@@ -676,17 +632,13 @@ function RightPanel({ open, onClose, data, width = 420 }) {
           >
             Download CSV
           </button>
-          <button
-            style={btn()}
-            onClick={onClose}
-          >
+          <button style={btn()} onClick={onClose}>
             Close
           </button>
         </div>
       </div>
 
       <div style={content}>
-        {/* Summary cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10 }}>
           {statCard('Down (Mbps)', summary.down, ' Mbps', 1)}
           {statCard('Up (Mbps)', summary.up, ' Mbps', 1)}
@@ -695,10 +647,8 @@ function RightPanel({ open, onClose, data, width = 420 }) {
           {statCard('Loss (%)', summary.loss, ' %', 1)}
         </div>
 
-        {/* Divider */}
         <div style={{ height: 1, background: '#E5E7EB', margin: '12px 0' }} />
 
-        {/* Items list */}
         {items.length === 0 ? (
           <div>No measurements in this hex (after filters).</div>
         ) : (
@@ -753,17 +703,16 @@ export default function HexMap({
   providers = ['AT&T','T-Mobile','Verizon','Other'],
   dateRange = { preset: 'all', start: '', end: '' },
   onPointClick = () => {},
+  onRegisterSearch,
 }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const [rowsAll, setRowsAll] = useState([]);
   const [mapReady, setMapReady] = useState(false);
 
-  // right drawer state
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelData, setPanelData] = useState(null);
 
-  // selection state
   const [selectedIdx, setSelectedIdx] = useState(null);
   const selectedIdxRef = useRef(null);
 
@@ -772,7 +721,6 @@ export default function HexMap({
   const modeRef = useRef(mode);
   const [exporting, setExporting] = useState(false);
 
-  // NEW: keep latest filtered rows for cluster click
   const rowsFilteredRef = useRef([]);
 
   useEffect(()=>{ rowsAllRef.current = rowsAll; }, [rowsAll]);
@@ -864,7 +812,6 @@ export default function HexMap({
     return pass;
   }, [rowsAll, typeFilters, providers, connTypes, dateBounds]);
 
-  // keep ref synced
   useEffect(() => { rowsFilteredRef.current = rowsFiltered; }, [rowsFiltered]);
 
   // ---------- map wiring ----------
@@ -914,7 +861,6 @@ export default function HexMap({
     updateSelectionOverlay(map, selectedIdxRef.current);
   }
 
-  // ---- selection overlay helpers ----
   function buildHexFeature(idx) {
     if (!idx) return emptyFC();
     const ring = h3.cellToBoundary(idx, true);
@@ -946,11 +892,9 @@ export default function HexMap({
     if (!idx) {
       safeSetGeoJSON(map, 'hex-selected', emptyFC());
       safeSetGeoJSON(map, 'hex-center-selected', emptyFC());
-
       if (map.getLayer('hex-selected-bubble')) {
-        map.setPaintProperty('hex-selected-bubble', 'circle-radius', 18); // default size when cleared
+        map.setPaintProperty('hex-selected-bubble', 'circle-radius', 18);
       }
-
       applySelectionColors(map, 'default');
       return;
     }
@@ -961,44 +905,35 @@ export default function HexMap({
     const count = items.length;
     safeSetGeoJSON(map, 'hex-selected', buildHexFeature(idx));
     safeSetGeoJSON(map, 'hex-center-selected', buildCenterFeature(idx, count));
-
-    // enlarge bubble on selection (color stays green)
     if (map.getLayer('hex-selected-bubble')) {
       map.setPaintProperty('hex-selected-bubble', 'circle-radius', 24);
     }
-
-    // recolor selection polygon/label by dominant type (bubble untouched)
     const domType = dominantTypeOfItems(items);
     applySelectionColors(map, domType);
   }
 
-  // ---------- NEW: zoom-aware mode visibility ----------
   function applyModeVisibility(map, currentMode) {
     if (!map) return;
-    const hexZoomOk = shouldRenderHexes(map);   // within [HEX_ZOOM_MIN, HEX_ZOOM_MAX]
+    const hexZoomOk = shouldRenderHexes(map);
     const wantHex   = currentMode === 'hex';
     const showHex   = wantHex && hexZoomOk;
     const showDot   = !showHex;
 
-    // hex family
     setVis(map, 'hex-outline', showHex);
     setVis(map, 'hex-fill-active', showHex);
     setVis(map, 'hex-count-bubble', showHex);
     setVis(map, 'hex-count-label', showHex);
 
-    // selection overlays follow hex visibility
     setVis(map, 'hex-selected-fill', showHex);
     setVis(map, 'hex-selected-outline', showHex);
     setVis(map, 'hex-selected-bubble', showHex);
     setVis(map, 'hex-selected-label', showHex);
 
-    // points/clusters
     setVis(map, 'clusters', showDot);
     setVis(map, 'cluster-count', showDot);
     setVis(map, 'unclustered-point', showDot);
   }
 
-  // --- helpers for cluster click -> panel with actual leaves ---
   function getClusterLeavesAsync(source, clusterId, limit = 10000, offset = 0) {
     return new Promise((resolve, reject) => {
       try {
@@ -1034,10 +969,8 @@ export default function HexMap({
       const leaves = await getClusterLeavesAsync(src, clusterId, 10000, 0);
       const ids = new Set(leaves.map(f => f?.properties?.id).filter(Boolean));
 
-      // respect current filters
       const items = (rowsFilteredRef.current || []).filter(r => ids.has(r.id));
 
-      // representative hex for header/selection
       const fallbackIdx = clickLngLat
         ? h3.latLngToCell(clickLngLat.lat, clickLngLat.lng, HEX_RES)
         : null;
@@ -1053,7 +986,6 @@ export default function HexMap({
     }
   }
 
-  // 🔧 INIT MAP ONLY ONCE — do not depend on `mode` here or the map will reset on toggle
   useEffect(() => {
     if (!mapEl.current || mapRef.current) return;
     dlog('H3 version?', h3.VERSION || h3.version || '(unknown)', 'has polygonToCells?', typeof h3.polygonToCells);
@@ -1070,12 +1002,10 @@ export default function HexMap({
       map.addSource('hex-fills',   { type: 'geojson', data: emptyFC() });
       map.addSource('hex-centers', { type: 'geojson', data: emptyFC() });
 
-      // base layers
       map.addLayer({ id: 'clusters', type: 'circle', source: 'points', filter: ['has', 'point_count'], paint: { 'circle-color': PALETTE.greyDark, 'circle-stroke-width': 1.5, 'circle-stroke-color': PALETTE.white, 'circle-opacity': 0.9, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 10, 8, 16, 12, 22, 16, 28, 20, 34] } });
       map.addLayer({ id: 'cluster-count', type: 'symbol', source: 'points', filter: ['has', 'point_count'], layout: { 'text-field': ['to-string', ['get', 'point_count']], 'text-font': ['Inter Regular', 'Arial Unicode MS Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 3, 10, 8, 12, 12, 14, 16, 16, 20, 18], 'text-allow-overlap': true }, paint: { 'text-color': PALETTE.white } });
       map.addLayer({ id: 'unclustered-point', type: 'circle', source: 'points', filter: ['!', ['has', 'point_count']], paint: { 'circle-color': PALETTE.greyDark, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 3, 4, 8, 6, 12, 7, 16, 8, 20, 9], 'circle-opacity': 0.9, 'circle-stroke-width': 1, 'circle-stroke-color': PALETTE.white } });
 
-      // static hex visuals (stay green; selection overlay is recolored per type)
       map.addLayer({ id: 'hex-outline', type: 'line', source: 'hexes', paint: { 'line-color': PALETTE.green, 'line-width': 1, 'line-opacity': 0.55 }});
       map.addLayer({ id: 'hex-fill-active', type: 'fill', source: 'hex-fills', paint: { 'fill-color': PALETTE.greenLight, 'fill-opacity': 0.25 }});
       map.addLayer({
@@ -1092,7 +1022,6 @@ export default function HexMap({
       });
       map.addLayer({ id: 'hex-count-label', type: 'symbol', source: 'hex-centers', layout: { 'text-field': ['to-string', ['get', 'count']], 'text-size': 12, 'text-allow-overlap': true }, paint: { 'text-color': PALETTE.white }});
 
-      // selection overlay sources + layers
       map.addSource('hex-selected', { type: 'geojson', data: emptyFC() });
       map.addSource('hex-center-selected', { type: 'geojson', data: emptyFC() });
 
@@ -1115,7 +1044,7 @@ export default function HexMap({
         type: 'circle',
         source: 'hex-center-selected',
         paint: {
-          'circle-color': PALETTE.greenDark, // fixed green
+          'circle-color': PALETTE.greenDark,
           'circle-radius': 18,
           'circle-opacity': 0.95,
           'circle-stroke-width': 3,
@@ -1136,7 +1065,7 @@ export default function HexMap({
         setRowsAll(initialRows);
         safeSetGeoJSON(map, 'points', rowsToPointFeatures(initialRows));
         redrawHexes(map, initialRows, modeRef.current);
-        applyModeVisibility(map, modeRef.current);   // zoom-aware flip on init
+        applyModeVisibility(map, modeRef.current);
         updateSelectionOverlay(map, selectedIdxRef.current);
         setMapReady(true);
         flog('initial viewport', { rowsAll: initialRows.length });
@@ -1194,7 +1123,6 @@ export default function HexMap({
       map.on('moveend', refresh);
       map.on('zoomend', refresh);
 
-      // flip layers on zoom boundary crossings (and ensure hex paint sync)
       map.on('zoomend', () => {
         applyModeVisibility(map, modeRef.current);
         redrawHexes(map, rowsAllRef.current, modeRef.current);
@@ -1209,8 +1137,7 @@ export default function HexMap({
       setMapReady(false);
       cellItemsRef.current = new Map();
     };
-    // IMPORTANT: init once — do NOT depend on `mode`, or map will reset on toggle
-  }, []); // ← init once
+  }, []); // init once
 
   async function fetchViewportRows(map) {
     const b = map.getBounds();
@@ -1258,6 +1185,11 @@ export default function HexMap({
     setPanelOpen(true);
     setSelectedIdx(idx);
     updateSelectionOverlay(mapRef.current, idx);
+    // Fly to hex center for context
+    try {
+      const [lat, lng] = h3.cellToLatLng(idx);
+      mapRef.current?.flyTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 12), speed: 0.9 });
+    } catch {}
   };
 
   const openDotSheet = (lng, lat, clickedId) => {
@@ -1274,17 +1206,15 @@ export default function HexMap({
     updateSelectionOverlay(mapRef.current, idx);
   };
 
-  // reflect filtered rows on map
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     safeSetGeoJSON(map, 'points', rowsToPointFeatures(rowsFiltered));
     redrawHexes(map, rowsFiltered, modeRef.current);
-    applyModeVisibility(map, modeRef.current);            // ensure correct family shown after data/filter updates
+    applyModeVisibility(map, modeRef.current);
     updateSelectionOverlay(map, selectedIdxRef.current);
   }, [rowsFiltered, mapReady]);
 
-  // toggle visibility without recreating the map
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
@@ -1293,7 +1223,6 @@ export default function HexMap({
     updateSelectionOverlay(map, selectedIdxRef.current);
   }, [mapReady, mode, rowsFiltered]);
 
-  // ---------------- GLOBAL EXPORT (all filtered) ----------------
   async function* iterateAllLocations() {
     for (let page = 0; page < GLOBAL_MAX_PAGES; page++) {
       const from = page * GLOBAL_PAGE_SIZE;
@@ -1392,11 +1321,84 @@ export default function HexMap({
     setExporting(false);
   }
 
-  // callable from FiltersPanel via window
   useEffect(() => {
     window.__hexmap.doExportAllFiltered = globalExportFilteredCsv;
     return () => { if (window.__hexmap?.doExportAllFiltered) delete window.__hexmap.doExportAllFiltered; };
   }, [typeFilters, connTypes, providers, dateBounds]);
+
+  useEffect(() => {
+  if (!onRegisterSearch) return;
+  onRegisterSearch({
+    getMapCenter,
+    onPick: onSearchPick,
+    onPickHex: onSearchPickHex
+  });
+
+  }, [onRegisterSearch]);
+
+  // ================= SEARCH INTEGRATION =================
+
+  const getMapCenter = () => {
+    const m = mapRef.current;
+    if (!m) return null;
+    const c = m.getCenter();
+    return { lng: c.lng, lat: c.lat };
+  };
+
+  const haversineMeters = (a, b) => {
+    const R = 6371000;
+    const dLat = (b.lat - a.lat) * Math.PI/180;
+    const dLng = (b.lng - a.lng) * Math.PI/180;
+    const s1 = Math.sin(dLat/2) ** 2;
+    const s2 = Math.cos(a.lat*Math.PI/180) * Math.cos(b.lat*Math.PI/180) * Math.sin(dLng/2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s1 + s2));
+  };
+
+  const findNearestRows = (lng, lat, limitMeters = 200) => {
+    const src = rowsFilteredRef.current || [];
+    const here = { lng, lat };
+    const candidates = [];
+    for (const r of src) {
+      if (!Number.isFinite(r?.lat) || !Number.isFinite(r?.lon)) continue;
+      const d = haversineMeters(here, { lng: r.lon, lat: r.lat });
+      if (d <= limitMeters) candidates.push({ d, r });
+    }
+    candidates.sort((a,b)=>a.d-b.d);
+    return candidates.map(x=>x.r);
+  };
+
+  const onSearchPickHex = (maybeIdx) => {
+    try {
+      const [lat, lng] = h3.cellToLatLng(maybeIdx);
+      flyToSwing(mapRef.current, { lng, lat }, { minZoom: 12 });
+      setPanelOpen(false);
+      setSelectedIdx(null);
+      updateSelectionOverlay(mapRef.current, null);
+    } catch {}
+  };
+
+ const onSearchPick = ({ lng, lat }) => {
+   const map = mapRef.current;
+   if (!map) return;
+   flyToSwing(map, { lng, lat }, { minZoom: 13 });
+   setPanelOpen(false);
+   setSelectedIdx(null);
+   updateSelectionOverlay(mapRef.current, null);
+ };
+
+  function flyToSwing(map, { lng, lat }, { minZoom = 13 } = {}) {
+    if (!map) return;
+    const targetZoom = Math.max(map.getZoom() || 0, minZoom);
+    map.flyTo({
+      center: [lng, lat],
+      zoom: targetZoom,
+      speed: 0.7,
+      curve: 1.6,
+      essential: true
+    });
+  }
+
+  // =====================================================
 
   return (
     <>
@@ -1420,7 +1422,7 @@ export default function HexMap({
           msUserSelect: 'none'
         }}
       />
-
+      {}
       <RightPanel
         open={panelOpen}
         data={panelData}
