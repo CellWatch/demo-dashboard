@@ -448,7 +448,14 @@ function applySelectionColors(map/*, dominantType */) {
 
 /* ------------------ RightPanel (drawer with details) ------------------ */
 function RightPanel({ open, onClose, data, width = 420 }) {
-  const hexIdx  = data?.hexIdx ?? '';
+  const hexIdx = data?.hexIdx ?? '';
+  const initialLocName = typeof data?.locationName === 'string' && data.locationName.trim()
+    ? data.locationName.trim()
+    : null;
+
+  const [locName, setLocName] = React.useState(initialLocName);
+  const [shortName, setShortName] = React.useState(initialLocName || 'Selected area');
+
   const summary = data?.summary ?? {
     count: 0,
     down:   { avg: null, min: null, max: null },
@@ -459,6 +466,81 @@ function RightPanel({ open, onClose, data, width = 420 }) {
   };
   const items = Array.isArray(data?.items) ? data.items : [];
 
+  const shortenPlaceName = React.useCallback((name, maxChars = 42) => {
+    if (!name) return 'Selected area';
+    const raw = name.replace(/\s+/g, ' ').trim();
+    const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+    const bannedTail = /^(united states|usa|canada|mexico|europe|asia|africa|australia|antarctica)$/i;
+    while (parts.length > 2 && bannedTail.test(parts[parts.length - 1])) parts.pop();
+
+    let picked = parts.slice(0, 2);
+    if (picked[0] && picked[1] && picked[0].toLowerCase() === picked[1].toLowerCase()) {
+      picked = [picked[0]];
+    }
+
+    let candidate = picked.join(', ');
+    if (candidate.length <= maxChars) return candidate;
+
+    candidate = picked[0] || raw;
+    if (candidate.length <= maxChars) return candidate;
+
+    const CUT = Math.max(0, maxChars - 1);
+    return candidate.slice(0, CUT) + '…';
+  }, []);
+
+  React.useEffect(() => {
+    let aborted = false;
+    async function resolveName() {
+      try {
+        if (initialLocName) {
+          if (!aborted) {
+            setLocName(initialLocName);
+            setShortName(shortenPlaceName(initialLocName));
+          }
+          return;
+        }
+        if (!hexIdx) {
+          if (!aborted) {
+            setLocName('Selected area');
+            setShortName('Selected area');
+          }
+          return;
+        }
+
+        const [lat, lng] = h3.cellToLatLng(hexIdx);
+        const token = import.meta.env.VITE_MAPBOX_TOKEN;
+        if (!token || lat == null || lng == null) {
+          if (!aborted) {
+            setLocName('Selected area');
+            setShortName('Selected area');
+          }
+          return;
+        }
+
+        const url =
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json` +
+          `?access_token=${token}&limit=1&types=place,locality,neighborhood,poi,address,region,postcode`;
+
+        const resp = await fetch(url);
+        const json = await resp.json();
+        const name = json?.features?.[0]?.place_name || json?.features?.[0]?.text || null;
+
+        if (!aborted) {
+          const full = name || 'Selected area';
+          setLocName(full);
+          setShortName(shortenPlaceName(full));
+        }
+      } catch {
+        if (!aborted) {
+          setLocName('Selected area');
+          setShortName('Selected area');
+        }
+      }
+    }
+    resolveName();
+    return () => { aborted = true; };
+  }, [hexIdx, initialLocName, shortenPlaceName]);
+
   const fmt = (v, unit = '', digits = 1) => (v == null ? '—' : `${Number(v).toFixed(digits)}${unit}`);
   const fmtDate = (ts) => {
     if (!ts) return '—';
@@ -468,14 +550,9 @@ function RightPanel({ open, onClose, data, width = 420 }) {
   };
 
   const statRow = (k, v) => (
-    <div style={{
-      display: 'flex',
-      alignItems: 'baseline',
-      justifyContent: 'space-between',
-      gap: 10
-    }}>
-      <div style={{ fontSize: 12, color: '#6B7280' }}>{k}</div>
-      <div style={{ fontSize: k === 'Average' ? 20 : 13, fontWeight: k === 'Average' ? 700 : 600, color: '#111827' }}>
+    <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:10 }}>
+      <div style={{ fontSize:12, color:'#6B7280' }}>{k}</div>
+      <div style={{ fontSize: k === 'Average' ? 20 : 13, fontWeight: k === 'Average' ? 700 : 600, color:'#111827' }}>
         {v}
       </div>
     </div>
@@ -485,17 +562,12 @@ function RightPanel({ open, onClose, data, width = 420 }) {
     const fmtNum = (n) => (n == null ? '—' : `${Number(n).toFixed(digits)}${unit}`);
     return (
       <div style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        background: '#F8FAFC',
-        border: '1px solid #E5E7EB',
-        borderRadius: 10,
-        padding: 12,
-        minWidth: 160
+        display:'flex', flexDirection:'column', gap:8,
+        background:'#F8FAFC', border:'1px solid #E5E7EB',
+        borderRadius:10, padding:12, minWidth:160
       }}>
-        <div style={{ fontSize: 12, color: '#6B7280' }}>{label}</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div style={{ fontSize:12, color:'#6B7280' }}>{label}</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
           {statRow('Average', fmtNum(obj?.avg))}
           {statRow('Min',     fmtNum(obj?.min))}
           {statRow('Max',     fmtNum(obj?.max))}
@@ -508,15 +580,15 @@ function RightPanel({ open, onClose, data, width = 420 }) {
     const c = TYPE_COLORS[kind] || TYPE_COLORS.default;
     return (
       <span style={{
-        display: 'inline-block',
-        background: c.badgeBg,
-        color: c.badgeText,
-        border: `1px solid ${c.tintBorder}`,
-        padding: '2px 8px',
-        borderRadius: 999,
-        fontSize: 11,
-        fontWeight: 600,
-        lineHeight: 1
+        display:'inline-block',
+        background:c.badgeBg,
+        color:c.badgeText,
+        border:`1px solid ${c.tintBorder}`,
+        padding:'2px 8px',
+        borderRadius:999,
+        fontSize:11,
+        fontWeight:600,
+        lineHeight:1
       }}>{text}</span>
     );
   };
@@ -553,93 +625,100 @@ function RightPanel({ open, onClose, data, width = 420 }) {
     const a = document.createElement('a');
     const when = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `cellwatch_hex_${hexIdx || 'unknown'}_${rows.length}_rows_${when}.csv`;
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   };
 
   const container = {
-    position: 'fixed',
-    top: 0,
-    bottom: 0,
-    right: 0,
-    width,
-    background: '#FFFFFF',
-    boxShadow: '-2px 0 24px rgba(0,0,0,0.12)',
-    borderLeft: '1px solid #e5e7eb',
-    zIndex: 10002,
+    position:'fixed', top:0, bottom:0, right:0, width,
+    background:'#FFFFFF',
+    boxShadow:'-2px 0 24px rgba(0,0,0,0.12)',
+    borderLeft:'1px solid #e5e7eb',
+    zIndex:10002,
     transform: open ? 'translateX(0)' : `translateX(${width + 24}px)`,
-    transition: 'transform 180ms ease-out',
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-    fontFamily: 'Inter, system-ui, Arial, sans-serif'
+    transition:'transform 180ms ease-out',
+    display:'flex', flexDirection:'column', overflow:'hidden',
+    fontFamily:'Inter, system-ui, Arial, sans-serif'
   };
 
   const header = {
-    position: 'sticky',
-    top: 0,
-    zIndex: 1,
-    background: '#FFFFFF',
-    borderBottom: '1px solid #eef2f7',
-    padding: '12px 14px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between'
+    position:'sticky', top:0, zIndex:1,
+    background:'#FFFFFF',
+    borderBottom:'1px solid #eef2f7',
+    padding:'12px 14px',
+    display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap: 10
   };
 
   const content = {
-    flex: 1,
-    overflow: 'auto',
-    padding: 14,
-    color: '#555',
-    fontSize: 13
+    flex:1, overflow:'auto', padding:14, color:'#555', fontSize:13
   };
 
-  const titleLeft = { display: 'flex', alignItems: 'center', gap: 8, color: '#1f2937', fontWeight: 600, fontSize: 14 };
-  const dot = { width: 10, height: 10, borderRadius: 999, background: '#C8E3CC' };
+  const leftStack = {
+    display:'flex',
+    flexDirection:'column',
+    alignItems:'flex-start',
+    lineHeight:1.2,
+    gap:4,
+    minWidth:0 // enables ellipsis/clamp to work
+  };
+
+  const titleClamp = {
+    color:'#1f2937',
+    fontWeight:700,
+    fontSize:16,
+    display:'-webkit-box',
+    WebkitLineClamp: 2,        // clamp to 2 lines
+    WebkitBoxOrient:'vertical',
+    overflow:'hidden',
+    maxWidth: 260,
+    lineHeight: 1.2,
+    wordBreak: 'break-word',
+  };
+
   const btn = (style = {}) => ({
-    border: '1px solid #d1d5db',
-    borderRadius: 8,
-    background: '#FFFFFF',
-    padding: '6px 10px',
-    cursor: 'pointer',
-    color: '#464646',
-    fontWeight: 600,
+    border:'1px solid #d1d5db',
+    borderRadius:8,
+    background:'#FFFFFF',
+    padding:'6px 10px',
+    cursor:'pointer',
+    color:'#464646',
+    fontWeight:600,
+    whiteSpace: 'nowrap',
     ...style
   });
 
   return (
     <div style={container} aria-hidden={!open}>
       <div style={header}>
-        <div style={titleLeft}>
-          <span style={dot} />
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-            <span style={{ color: '#1f2937', fontWeight: 600 }}>Hex {hexIdx}</span>
-            <span style={{ color: '#6b7280', fontWeight: 500 }}>
-              {summary.count} measurement{summary.count === 1 ? '' : 's'}
-            </span>
-          </div>
+        {/* Left: three vertical lines with clamp + tooltip */}
+        <div style={leftStack}>
+          <span style={titleClamp} title={locName || 'Selected area'}>
+            {shortName || 'Selected area'}
+          </span>
+          <span style={{ color:'#6b7280', fontWeight:500, fontSize:12 }}>Hex {hexIdx}</span>
+          <span style={{ color:'#6b7280', fontWeight:500, fontSize:12 }}>
+            {summary.count} measurement{summary.count === 1 ? '' : 's'}
+          </span>
         </div>
 
-        <div style={{ display: 'flex', gap: 8 }}>
+        {/* Right: actions (wrap if tight) */}
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
           <button
             onClick={exportPanelCsv}
-            style={btn({ borderColor: PALETTE.green, background: PALETTE.greenDark, color: '#FFFFFF' })}
+            style={btn({ borderColor: PALETTE.green, background: PALETTE.greenDark, color:'#FFFFFF' })}
+            title="Download CSV for this hex"
           >
             Download CSV
           </button>
-          <button style={btn()} onClick={onClose}>
+          <button style={btn()} onClick={onClose} title="Close panel">
             Close
           </button>
         </div>
       </div>
 
       <div style={content}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 10 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(2,minmax(0,1fr))', gap:10 }}>
           {statCard('Down (Mbps)', summary.down, ' Mbps', 1)}
           {statCard('Up (Mbps)', summary.up, ' Mbps', 1)}
           {statCard('Ping (ms)', summary.ping, ' ms', 0)}
@@ -647,32 +726,44 @@ function RightPanel({ open, onClose, data, width = 420 }) {
           {statCard('Loss (%)', summary.loss, ' %', 1)}
         </div>
 
-        <div style={{ height: 1, background: '#E5E7EB', margin: '12px 0' }} />
+        <div style={{ height:1, background:'#E5E7EB', margin:'12px 0' }} />
 
         {items.length === 0 ? (
           <div>No measurements in this hex (after filters).</div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
             {items.map((m) => {
               const s = m.__stats || {};
               const rawKind = String(m?.type || 'default').toLowerCase();
               const kind = rawKind === 'down' ? 'download' : rawKind;
               return (
-                <div key={`${m.id}-${m.loc_id}`} style={{
-                  border: '1px solid #E5E7EB',
-                  borderRadius: 10,
-                  padding: 12,
-                  background: '#FFFFFF'
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div
+                  key={`${m.id}-${m.loc_id}`}
+                  style={{
+                    border:'1px solid #E5E7EB',
+                    borderRadius:10,
+                    padding:12,
+                    background:'#FFFFFF'
+                  }}
+                >
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6, gap: 8 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, minWidth:0 }}>
                       {chip(kind, kind)}
-                      <span style={{ color: '#374151', fontWeight: 600 }}>{m.provider || 'Unknown provider'}</span>
+                      <span style={{
+                        color:'#374151',
+                        fontWeight:600,
+                        overflow:'hidden',
+                        textOverflow:'ellipsis',
+                        whiteSpace:'nowrap',
+                        maxWidth: 220
+                      }}>
+                        {m.provider || 'Unknown provider'}
+                      </span>
                     </div>
-                    <div style={{ color: '#6B7280' }}>{fmtDate(m.timestamp)}</div>
+                    <div style={{ color:'#6B7280', whiteSpace:'nowrap' }}>{fmtDate(m.timestamp)}</div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: 6, marginTop: 6 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,minmax(0,1fr))', gap:6, marginTop:6 }}>
                     <div><strong>Down</strong><div>{fmt(s.down, ' Mbps', 1)}</div></div>
                     <div><strong>Up</strong><div>{fmt(s.up, ' Mbps', 1)}</div></div>
                     <div><strong>Ping</strong><div>{fmt(s.ping, ' ms', 0)}</div></div>
@@ -681,8 +772,8 @@ function RightPanel({ open, onClose, data, width = 420 }) {
                     <div><strong>Conn</strong><div>{m.__conn || '—'}</div></div>
                   </div>
 
-                  <div style={{ marginTop: 8, fontSize: 12, color: '#6B7280' }}>
-                    <span style={{ marginRight: 12 }}>lat: {Number.isFinite(m.lat) ? m.lat.toFixed(5) : '—'}</span>
+                  <div style={{ marginTop:8, fontSize:12, color:'#6B7280' }}>
+                    <span style={{ marginRight:12 }}>lat: {Number.isFinite(m.lat) ? m.lat.toFixed(5) : '—'}</span>
                     <span>lon: {Number.isFinite(m.lon) ? m.lon.toFixed(5) : '—'}</span>
                   </div>
                 </div>
@@ -694,6 +785,10 @@ function RightPanel({ open, onClose, data, width = 420 }) {
     </div>
   );
 }
+
+
+
+
 
 /* ======================== MAIN COMPONENT ======================== */
 export default function HexMap({
@@ -727,7 +822,6 @@ export default function HexMap({
   useEffect(()=>{ modeRef.current = mode; }, [mode]);
   useEffect(()=>{ selectedIdxRef.current = selectedIdx; }, [selectedIdx]);
 
-  // ---------- date bounds ----------
   const dateBounds = useMemo(() => {
     const now = new Date();
     let start = null, end = null;
@@ -754,7 +848,6 @@ export default function HexMap({
     return { start, end };
   }, [dateRange]);
 
-  // ---------- filter fns ----------
   const typePass = (row) => {
     const t = String(row?.type || '').toLowerCase();
     if (typeFilters?.all) return true;
@@ -814,7 +907,6 @@ export default function HexMap({
 
   useEffect(() => { rowsFilteredRef.current = rowsFiltered; }, [rowsFiltered]);
 
-  // ---------- map wiring ----------
   function aggregateIntoHexes(rowsArg, cellIdxsSet) {
     const counts = new Map();
     const itemsByCell = new Map();
@@ -911,6 +1003,20 @@ export default function HexMap({
     const domType = dominantTypeOfItems(items);
     applySelectionColors(map, domType);
   }
+
+  function buildSheetData(hexIdx, itemsRaw) {
+    const [latC, lngC] = h3.cellToLatLng(hexIdx);
+    const items = (itemsRaw || []).map(m => ({ ...m, __stats: m.__stats || extractStats(m) }));
+    const downs = items.map(i => i.__stats.down);
+    const ups   = items.map(i => i.__stats.up);
+    const pings = items.map(i => i.__stats.ping);
+    const jits  = items.map(i => i.__stats.jitter);
+    const losses= items.map(i => i.__stats.loss);
+    const summary = { count: items.length, down: aggNums(downs), up: aggNums(ups), ping: aggNums(pings), jitter: aggNums(jits), loss: aggNums(losses) };
+    const domType = dominantTypeOfItems(items);
+    return { hexIdx, center: { lat: latC, lng: lngC }, summary, items, domType };
+  }
+
 
   function applyModeVisibility(map, currentMode) {
     if (!map) return;
@@ -1222,6 +1328,20 @@ export default function HexMap({
     redrawHexes(map, rowsFiltered, mode);
     updateSelectionOverlay(map, selectedIdxRef.current);
   }, [mapReady, mode, rowsFiltered]);
+
+  async function reverseGeocode({ lng, lat }) {
+    try {
+      const token = import.meta.env.VITE_MAPBOX_TOKEN;
+      if (!token) return null;
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${token}&limit=1`;
+      const resp = await fetch(url);
+      const json = await resp.json();
+      const name = json?.features?.[0]?.place_name || null;
+      return name;
+    } catch {
+      return null;
+    }
+  }
 
   async function* iterateAllLocations() {
     for (let page = 0; page < GLOBAL_MAX_PAGES; page++) {
