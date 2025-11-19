@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import HexMap from './components/HexMap';
 import SlidingPanel from './components/SlidingPanel';
 import FiltersPanel from './components/FiltersPanel';
@@ -45,13 +45,23 @@ export default function App() {
   const [searchFns, setSearchFns] = useState({
     getMapCenter: null,
     onPick: null,
-    onPickHex: null
+    onPickHex: null,
   });
 
-  const handleExportAll = () => {
+  const handleExportAll = useCallback(() => {
     if (!exportAllFn) throw new Error('Export function not ready');
     return exportAllFn();
-  };
+  }, [exportAllFn]);
+
+  const handleRegisterExport = useCallback((fn) => {
+    // this will now only be called once if HexMap’s effect runs once
+    setExportAllFn(() => fn);
+  }, []);
+
+  const handleRegisterSearch = useCallback((fns) => {
+    // same here
+    setSearchFns(fns);
+  }, []);
 
   return (
     <div id="root">
@@ -90,8 +100,8 @@ export default function App() {
           providers={providers}
           dateRange={{ preset: dateRange, start: customStartDate, end: customEndDate }}
           onPointClick={setSelectedMeasurement}
-          onRegisterExport={(fn) => setExportAllFn(() => fn)}
-          onRegisterSearch={(fns) => setSearchFns(fns)}
+          onRegisterExport={handleRegisterExport}
+          onRegisterSearch={handleRegisterSearch}
         />
       </div>
 

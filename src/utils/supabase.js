@@ -16,7 +16,6 @@ export const supabase = createClient(url, anon, {
   global: {
     headers: {
       'x-dashboard-secret': dash,
-      'Prefer': 'count=exact'
     }
   }
 });

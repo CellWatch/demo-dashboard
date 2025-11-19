@@ -4,19 +4,19 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import * as h3 from 'h3-js';
 import { supabase } from '../utils/supabase';
-import SearchBar from './SearchBar'; // ← NEW
+import SearchBar from './SearchBar';
 
 const HEX_RES = 8;
 const HEX_ZOOM_MIN = 9.0;
 const HEX_ZOOM_MAX = 14.0;
 const HEX_MAX_CELLS = 6000;
 
-const PAGE_SIZE = 2000;
+const PAGE_SIZE = 1000;
 const MAX_PAGES = 20;
 const MEAS_CHUNK = 500;
 
 // global export paging (not viewport-bounded)
-const GLOBAL_PAGE_SIZE = 2000;
+const GLOBAL_PAGE_SIZE = 1000;
 const GLOBAL_MAX_PAGES = 100000;
 
 const DEBUG_HEX = true;
@@ -279,28 +279,56 @@ function rowsToPointFeatures(rows) {
 
 // ---------- viewport fetchers ----------
 async function fetchLocationsInBox({ south, west, north, east, pageSize = PAGE_SIZE, maxPages = MAX_PAGES }) {
+  const effectivePageSize = Math.min(pageSize, 1000);
+
   const runBox = async (W, E) => {
     const out = [];
-    for (let page = 0; page < maxPages; page++) {
-      const from = page * pageSize;
-      const to = from + pageSize - 1;
-      let resp;
-      try {
-        resp = await supabase.from('locations').select('id,measurement_id,lat,lon').gte('lat', south).lte('lat', north).gte('lon', W).lte('lon', E).range(from, to);
-      } catch (e) { derr('[locations] fetch crashed:', e); break; }
-      const { data, error } = resp || {};
-      if (error) { derr('[locations] fetch error:', error); break; }
-      if (!data?.length) break;
+    let lastId = null;
+    let page = 0;
+
+    for (;;) {
+      if (page >= maxPages) {
+        console.log('[fetchLocationsInBox] reached maxPages', { maxPages, count: out.length });
+        break;
+      }
+
+      let query = supabase
+        .from('locations')
+        .select('id,measurement_id,lat,lon')
+        .gte('lat', south).lte('lat', north)
+        .gte('lon', W).lte('lon', E)
+        .order('id', { ascending: true })
+        .limit(effectivePageSize);
+
+      if (lastId !== null) {
+        query = query.gt('id', lastId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('[locations] fetch error:', error);
+        break;
+      }
+      if (!data || !data.length) break;
+
       out.push(...data);
-      if (data.length < pageSize) break;
+      lastId = data[data.length - 1].id;
+      page += 1;
+
+      if (data.length < effectivePageSize) break;
     }
+
+    console.log('[fetchLocationsInBox] box', { W, E, pages: page, count: out.length });
     return out;
   };
+
   if (west <= east) return await runBox(west, east);
   const left = await runBox(west, 180);
   const right = await runBox(-180, east);
   return [...left, ...right];
 }
+
 
 async function fetchMeasurementsByIds(ids) {
   const measById = new Map();
@@ -346,42 +374,111 @@ async function fetchMeasurementsByIds(ids) {
   return measById;
 }
 
-async function fetchCellsByMeasurementIds(ids) {
-  const out = new Map();
-  const uniq = Array.from(new Set(ids));
-  if (!uniq.length) return out;
+async function fetchAllRowsPaged({ start = null, end = null, pageSize = GLOBAL_PAGE_SIZE, maxPages = GLOBAL_MAX_PAGES } = {}) {
+  const effectivePageSize = Math.min(pageSize, 1000);
+  const out = [];
+  let lastId = null;
+  let page = 0;
 
-  try {
-    const { data, error } = await supabase
-      .from('cells')
-      .select('measurement_id, network_generation')
-      .in('measurement_id', uniq);
+  for (;;) {
+    if (page >= maxPages) {
+      flog('[HexMap][filters] fetchAllRowsPaged reached maxPages', { maxPages, count: out.length });
+      break;
+    }
+
+    let query = supabase
+      .from('locations')
+      .select('id,measurement_id,lat,lon,timestamp')
+      .order('id', { ascending: true })
+      .limit(effectivePageSize);
+
+    if (lastId !== null) {
+      query = query.gt('id', lastId);
+    }
+
+    if (start) query = query.gte('timestamp', start);
+    if (end)   query = query.lte('timestamp', end);
+
+    const { data, error } = await query;
 
     if (error) {
-      derr('[cells] fetch error:', error);
-      return out;
+      derr('[HexMap][filters] fetchAllRowsPaged error:', error);
+      break;
     }
+    if (!data?.length) break;
 
-    for (const row of data || []) {
-      const mid = row?.measurement_id;
-      const gen = row?.network_generation;
-      if (!mid) continue;
-      if (!out.has(mid)) {
-        out.set(mid, gen);
-      } else {
-        const prev = String(out.get(mid) || '').toLowerCase();
-        const cur  = String(gen || '').toLowerCase();
-        const is5  = (s) => s.includes('5g') || s.includes('nr');
-        if (!is5(prev) && is5(cur)) out.set(mid, gen);
-      }
-    }
-  } catch (e) {
-    derr('[cells] fetch crashed:', e);
+    out.push(...data);
+    lastId = data[data.length - 1].id;
+    page += 1;
+
+    if (data.length < effectivePageSize) break;
   }
 
-  flog('cells map built', { size: out.size });
-  return out;
+  flog('[HexMap][filters] fetchAllRowsPaged done', { count: out.length, pages: page });
+
+  const measIds = out.map(l => l.measurement_id);
+  const measMap = await fetchMeasurementsByIds(measIds);
+  const cellsMap = await fetchCellsByMeasurementIds(measIds);
+
+  const rows = out.map(l => {
+    const m = measMap.get(l.measurement_id) || { id: l.measurement_id };
+    const base = {
+      loc_id: l.id,
+      id: m.id,
+      timestamp: m.timestamp || l.timestamp || null,
+      provider: m.provider || null,
+      type: m.type || null,
+      upload_download_data: m.upload_download_data,
+      latency_data: m.latency_data,
+      extra_data: m.extra_data,
+      lat: Number(l.lat),
+      lon: Number(l.lon),
+    };
+
+    const genHint = cellsMap.get(l.measurement_id) || null;
+    const __stats = extractStats(base);
+    const __conn = deriveConnTag(base, genHint);
+    const __providerBucket = normalizeProviderBucket(base.provider);
+
+    return { ...base, __stats, __conn, __providerBucket };
+  });
+
+  return rows;
 }
+
+
+async function fetchCellsByMeasurementIds(measurementIds, batchSize = 200) {
+  if (!measurementIds?.length) return new Map();
+  const uniqueIds = Array.from(new Set(measurementIds));
+
+  const cellsMap = new Map();
+
+  for (let i = 0; i < uniqueIds.length; i += batchSize) {
+    const group = uniqueIds.slice(i, i + batchSize);
+
+    const { data, error } = await supabase
+      .from('cells')
+      .select('measurement_id,network_generation')
+      .in('measurement_id', group);
+
+    if (error) {
+      derr('[HexMap] [cells] fetch error (batch):', error);
+      continue;
+    }
+
+    if (data?.length) {
+      for (const row of data) {
+        if (!row?.measurement_id) continue;
+        if (!cellsMap.has(row.measurement_id)) {
+          cellsMap.set(row.measurement_id, row);
+        }
+      }
+    }
+  }
+
+  return cellsMap;
+}
+
 
 function normalizeProviderBucket(provider) {
   const p = String(provider || '').toLowerCase();
@@ -799,11 +896,13 @@ export default function HexMap({
   dateRange = { preset: 'all', start: '', end: '' },
   onPointClick = () => {},
   onRegisterSearch,
+  onRegisterExport
 }) {
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const [rowsAll, setRowsAll] = useState([]);
   const [mapReady, setMapReady] = useState(false);
+  const latestRowsRef = useRef([]);
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [panelData, setPanelData] = useState(null);
@@ -815,8 +914,10 @@ export default function HexMap({
   const rowsAllRef = useRef([]);
   const modeRef = useRef(mode);
   const [exporting, setExporting] = useState(false);
+  const [viewportLoading, setViewportLoading] = useState(false);
+  
+   const rowsFilteredRef = useRef([]);
 
-  const rowsFilteredRef = useRef([]);
 
   useEffect(()=>{ rowsAllRef.current = rowsAll; }, [rowsAll]);
   useEffect(()=>{ modeRef.current = mode; }, [mode]);
@@ -905,7 +1006,10 @@ export default function HexMap({
     return pass;
   }, [rowsAll, typeFilters, providers, connTypes, dateBounds]);
 
-  useEffect(() => { rowsFilteredRef.current = rowsFiltered; }, [rowsFiltered]);
+  useEffect(() => {
+    rowsFilteredRef.current = rowsFiltered;
+    latestRowsRef.current = rowsFiltered;
+  }, [rowsFiltered]);
 
   function aggregateIntoHexes(rowsArg, cellIdxsSet) {
     const counts = new Map();
@@ -1166,16 +1270,17 @@ export default function HexMap({
         paint: { 'text-color': PALETTE.white, 'text-halo-color': PALETTE.greenDark, 'text-halo-width': 1.5 }
       });
 
-      map.once('idle', async () => {
-        const initialRows = await fetchViewportRows(map);
-        setRowsAll(initialRows);
-        safeSetGeoJSON(map, 'points', rowsToPointFeatures(initialRows));
-        redrawHexes(map, initialRows, modeRef.current);
-        applyModeVisibility(map, modeRef.current);
-        updateSelectionOverlay(map, selectedIdxRef.current);
-        setMapReady(true);
-        flog('initial viewport', { rowsAll: initialRows.length });
-      });
+    map.once('idle', async () => {
+      const initialRows = await fetchViewportRows(map);
+      setRowsAll(initialRows);
+      safeSetGeoJSON(map, 'points', rowsToPointFeatures(initialRows));
+      redrawHexes(map, initialRows, modeRef.current);
+      applyModeVisibility(map, modeRef.current);
+      updateSelectionOverlay(map, selectedIdxRef.current);
+      setMapReady(true);
+      flog('initial viewport', { rowsAll: initialRows.length });
+    });
+
 
       const stop = (e) => { e.preventDefault?.(); e.originalEvent?.preventDefault?.(); e.originalEvent?.stopPropagation?.(); };
 
@@ -1243,43 +1348,74 @@ export default function HexMap({
       setMapReady(false);
       cellItemsRef.current = new Map();
     };
-  }, []); // init once
+  }, []);
 
   async function fetchViewportRows(map) {
-    const b = map.getBounds();
-    const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth();
-    const locs = await fetchLocationsInBox({ south, west, north, east });
-    if (!locs?.length) return [];
-    const measIds = locs.map(l => l.measurement_id);
-    const measMap = await fetchMeasurementsByIds(measIds);
-    const cellsMap = await fetchCellsByMeasurementIds(measIds);
+    setViewportLoading(true);
+    try {
+      const b = map.getBounds();
+      const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth();
+      const locs = await fetchLocationsInBox({ south, west, north, east });
+      if (!locs?.length) {
+        flog('fetchViewportRows result', { count: 0, bbox: { west, east, south, north } });
+        return [];
+      }
 
-    const rows = locs.map(l => {
-      const m = measMap.get(l.measurement_id) || { id: l.measurement_id };
-      const base = {
-        loc_id: l.id,
-        id: m.id,
-        timestamp: m.timestamp || null,
-        provider: m.provider || null,
-        type: m.type || null,
-        upload_download_data: m.upload_download_data,
-        latency_data: m.latency_data,
-        extra_data: m.extra_data,
-        lat: Number(l.lat),
-        lon: Number(l.lon),
-      };
+      const measIds = locs.map(l => l.measurement_id);
+      const measMap = await fetchMeasurementsByIds(measIds);
+      const cellsMap = await fetchCellsByMeasurementIds(measIds);
 
-      const genHint = cellsMap.get(l.measurement_id) || null;
-      const __stats = extractStats(base);
-      const __conn = deriveConnTag(base, genHint);
-      const __providerBucket = normalizeProviderBucket(base.provider);
+      const rows = locs.map(l => {
+        const m = measMap.get(l.measurement_id) || { id: l.measurement_id };
+        const base = {
+          loc_id: l.id,
+          id: m.id,
+          timestamp: m.timestamp || null,
+          provider: m.provider || null,
+          type: m.type || null,
+          upload_download_data: m.upload_download_data,
+          latency_data: m.latency_data,
+          extra_data: m.extra_data,
+          lat: Number(l.lat),
+          lon: Number(l.lon),
+        };
 
-      return { ...base, __stats, __conn, __providerBucket };
-    });
+        const genHint = cellsMap.get(l.measurement_id) || null;
+        const __stats = extractStats(base);
+        const __conn = deriveConnTag(base, genHint);
+        const __providerBucket = normalizeProviderBucket(base.provider);
 
-    flog('fetchViewportRows result', { count: rows.length, bbox: { west, east, south, north } });
-    return rows;
+        return { ...base, __stats, __conn, __providerBucket };
+      });
+
+      flog('fetchViewportRows result', { count: rows.length, bbox: { west, east, south, north } });
+      return rows;
+    } finally {
+      setViewportLoading(false);
+    }
   }
+
+
+
+  async function loadRowsForCurrentFilters(map) {
+    if (!map) return [];
+    const preset = dateRange?.preset || 'all';
+    const { start, end } = dateBounds;
+
+    let rowsAllLocal;
+
+    if (preset === 'all') {
+      rowsAllLocal = await fetchAllRowsPaged({
+        start: start?.toISOString?.() || null,
+        end: end?.toISOString?.() || null,
+      });
+    } else {
+      rowsAllLocal = await fetchViewportRows(map);
+    }
+
+    return rowsAllLocal;
+  }
+
 
   const openHexSheet = (idx) => {
     if (!idx) return;
@@ -1291,7 +1427,6 @@ export default function HexMap({
     setPanelOpen(true);
     setSelectedIdx(idx);
     updateSelectionOverlay(mapRef.current, idx);
-    // Fly to hex center for context
     try {
       const [lat, lng] = h3.cellToLatLng(idx);
       mapRef.current?.flyTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 12), speed: 0.9 });
@@ -1446,16 +1581,6 @@ export default function HexMap({
     return () => { if (window.__hexmap?.doExportAllFiltered) delete window.__hexmap.doExportAllFiltered; };
   }, [typeFilters, connTypes, providers, dateBounds]);
 
-  useEffect(() => {
-  if (!onRegisterSearch) return;
-  onRegisterSearch({
-    getMapCenter,
-    onPick: onSearchPick,
-    onPickHex: onSearchPickHex
-  });
-
-  }, [onRegisterSearch]);
-
   // ================= SEARCH INTEGRATION =================
 
   const getMapCenter = () => {
@@ -1518,7 +1643,43 @@ export default function HexMap({
     });
   }
 
-  // =====================================================
+    useEffect(() => {
+    if (!mapRef.current) return;
+
+    const searchApi = {
+      getMapCenter: () => {
+        const map = mapRef.current;
+        if (!map) return null;
+        const c = map.getCenter();
+        return { lng: c.lng, lat: c.lat };
+      },
+
+      onPick: (lngLat) => {
+        const map = mapRef.current;
+        if (!map || !lngLat) return;
+        map.flyTo({
+          center: [lngLat.lng, lngLat.lat],
+          zoom: Math.max(map.getZoom(), 13),
+        });
+      },
+
+      onPickHex: (hexIdx) => {
+        if (!hexIdx) return;
+        openHexSheet(hexIdx);
+      },
+    };
+
+    const exportFn = async () => {
+      return latestRowsRef.current;
+    };
+
+    if (onRegisterSearch) {
+      onRegisterSearch(searchApi);
+    }
+    if (onRegisterExport) {
+      onRegisterExport(exportFn);
+    }
+  }, []);
 
   return (
     <>
@@ -1531,6 +1692,29 @@ export default function HexMap({
         </div>
       )}
 
+    {viewportLoading && (
+      <div
+        style={{
+          position: 'fixed',
+          top: '4.5rem',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: PALETTE.greenDark,
+          color: '#fff',
+          padding: '8px 14px',
+          borderRadius: 999,
+          fontSize: 12,
+          fontWeight: 500,
+          zIndex: 10030,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+          pointerEvents: 'none',
+        }}
+      >
+        Loading data…
+      </div>
+    )}
+
+
       <div
         ref={mapEl}
         style={{
@@ -1542,7 +1726,6 @@ export default function HexMap({
           msUserSelect: 'none'
         }}
       />
-      {}
       <RightPanel
         open={panelOpen}
         data={panelData}
