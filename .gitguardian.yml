@@ -1,0 +1,5 @@
+paths:
+  ignore:
+    - frontend/.env.example
+    - backend/.env.example
+    - "**/*.md"

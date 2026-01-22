@@ -47,3 +47,11 @@ coverage/
 
 # VSCode
 /.vscode
+
+# Python
+__pycache__/
+*.pyc
+
+# Env files
+.env*
+.env.*
