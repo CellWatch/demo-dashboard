@@ -85,9 +85,13 @@ def _require_dashboard_secret(app: Flask):
 
 def create_app():
     app = Flask(__name__)
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    CORS(
+        app,
+        resources={r"/api/*": {"origins": ["https://cellwatch.github.io", "http://localhost:5173"]}},
+        allow_headers=["Content-Type", "x-dashboard-secret"],
+    )
 
-    #_require_dashboard_secret(app)
+    _require_dashboard_secret(app)
 
     repo = create_repo()
 
