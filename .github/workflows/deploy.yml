@@ -33,6 +33,7 @@ jobs:
       - name: Check build-time envs
         run: |
           echo "Has API?    $([ -n \"$VITE_API_BASE\" ] && echo yes || echo no)"
+          echo "Has BASE?   $([ -n \"$VITE_BASE\" ] && echo yes || echo no)"
           echo "Has URL?    $([ -n \"$VITE_SUPABASE_URL\" ] && echo yes || echo no)"
           echo "Has ANON?   $([ -n \"$VITE_SUPABASE_ANON_KEY\" ] && echo yes || echo no)"
           echo "Has DASH?   $([ -n \"$VITE_DASHBOARD_SECRET\" ] && echo yes || echo no)"
@@ -54,6 +55,12 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_DASHBOARD_SECRET: ${{ secrets.VITE_DASHBOARD_SECRET }}
           VITE_MAPBOX_TOKEN: ${{ secrets.VITE_MAPBOX_TOKEN }}
+
+      - name: Debug dist
+        run: |
+          pwd
+          ls -la
+          ls -la dist
 
       - name: SPA fallback
         run: cp dist/index.html dist/404.html || true

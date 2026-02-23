@@ -6,6 +6,11 @@ export default defineConfig(({ mode }) => ({
 
   base: process.env.VITE_BASE || (mode === 'production' ? '/demo-dashboard/' : '/'),
 
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true
+  },
+
   server: {
     proxy: {
       '/api': {
