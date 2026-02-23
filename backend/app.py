@@ -73,6 +73,8 @@ def _require_dashboard_secret(app: Flask):
 
     @app.before_request
     def _check():
+        if request.method == "OPTIONS":
+            return None
         if request.path == "/health":
             return None
         if not request.path.startswith("/api/"):
@@ -82,16 +84,17 @@ def _require_dashboard_secret(app: Flask):
             return jsonify({"error": "unauthorized"}), 401
         return None
 
-
 def create_app():
     app = Flask(__name__)
     CORS(
         app,
-        resources={r"/api/*": {"origins": ["https://cellwatch.github.io", "http://localhost:5173"]}},
+        resources={r"/api/*": {"origins": ["http://localhost:5173", "https://cellwatch.github.io"]}},
+        supports_credentials=False,
+        methods=["GET", "OPTIONS"],
         allow_headers=["Content-Type", "x-dashboard-secret"],
     )
 
-    _require_dashboard_secret(app)
+    #_require_dashboard_secret(app)
 
     repo = create_repo()
 
