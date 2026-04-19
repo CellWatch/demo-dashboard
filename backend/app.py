@@ -88,7 +88,15 @@ def create_app():
     app = Flask(__name__)
     CORS(
         app,
-        resources={r"/api/*": {"origins": ["http://localhost:5173", "https://cellwatch.github.io"]}},
+        resources={
+            r"/api/*": {
+                "origins": [
+                    r"http://localhost:\d+",
+                    r"http://127\.0\.0\.1:\d+",
+                    "https://cellwatch.github.io",
+                ]
+            }
+        },
         supports_credentials=False,
         methods=["GET", "OPTIONS"],
         allow_headers=["Content-Type", "x-dashboard-secret"],
