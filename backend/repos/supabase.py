@@ -33,6 +33,18 @@ def _iso(v):
     return v
 
 
+def _content_range_total(v):
+    if not v or "/" not in v:
+        return None
+    total = v.split("/", 1)[1].strip()
+    if not total or total == "*":
+        return None
+    try:
+        return int(total)
+    except Exception:
+        return None
+
+
 class SupabaseRpcRepo:
     def __init__(self):
         url = (os.getenv("SUPABASE_URL") or os.getenv("VITE_SUPABASE_URL") or "").strip()
@@ -63,22 +75,40 @@ class SupabaseRpcRepo:
         })
 
         self._dash = dash
+        try:
+            self._page_size = max(1, int((os.getenv("SUPABASE_RPC_PAGE_SIZE") or "1000").strip()))
+        except Exception:
+            self._page_size = 1000
 
-    def _rpc(self, fn: str, payload: dict):
-        headers = {}
+    def _rpc_response(self, fn: str, payload: dict, params: dict | None = None, headers: dict | None = None):
+        merged_headers = {}
+        if headers:
+            merged_headers.update(headers)
+        auth_headers = {}
         if self._dash:
-            headers["x-dashboard-secret"] = self._dash
+            auth_headers["x-dashboard-secret"] = self._dash
+        merged_headers.update(auth_headers)
 
-        r = self.http.post(f"{self.base}/{fn}", json=payload, headers=headers, timeout=90)
+        r = self.http.post(
+            f"{self.base}/{fn}",
+            params=params,
+            json=payload,
+            headers=merged_headers,
+            timeout=90,
+        )
         if r.status_code >= 400:
             raise RuntimeError(f"RPC {fn} failed ({r.status_code}): {r.text}")
+        return r
+
+    def _rpc(self, fn: str, payload: dict, params: dict | None = None, headers: dict | None = None):
+        r = self._rpc_response(fn, payload, params=params, headers=headers)
         if not r.text:
             return None
         return r.json()
 
-    def _rpc_map_points(self, bbox, filters: dict, limit: int):
+    def _map_points_payload(self, bbox, filters: dict, limit: int):
         min_lng, min_lat, max_lng, max_lat = bbox
-        payload = {
+        return {
             "min_lng": float(min_lng),
             "min_lat": float(min_lat),
             "max_lng": float(max_lng),
@@ -95,21 +125,100 @@ class SupabaseRpcRepo:
             "lat_max": filters.get("lat_max"),
             "lim": int(limit),
         }
-        return self._rpc("rpc_map_points", payload) or []
+
+    def _rpc_map_points_page(self, bbox, filters: dict, limit: int, offset: int, page_limit: int):
+        if page_limit <= 0:
+            return [], None
+        payload = self._map_points_payload(bbox=bbox, filters=filters, limit=limit)
+        resp = self._rpc_response(
+            "rpc_map_points",
+            payload,
+            params={"limit": int(page_limit), "offset": int(offset)},
+            headers={"Prefer": "count=exact"},
+        )
+        rows = resp.json() if resp.text else []
+        total = _content_range_total(resp.headers.get("content-range"))
+        return rows or [], total
+
+    def _normalize_point_row(self, row: dict):
+        return {
+            "group_id": row.get("group_id"),
+            "provider": row.get("provider"),
+            "conn_tag": row.get("conn_tag"),
+            "timestamp": _iso(row.get("timestamp")),
+            "center": row.get("center"),
+            "stats": row.get("stats") or {},
+        }
+
+    def _point_key(self, row: dict):
+        group_id = row.get("group_id")
+        if group_id:
+            return ("group_id", str(group_id))
+
+        center = row.get("center") or []
+        center_key = tuple(center) if isinstance(center, list) else None
+        stats = row.get("stats") or {}
+        stats_key = tuple(sorted(stats.items()))
+        return (
+            "fallback",
+            row.get("timestamp"),
+            row.get("provider"),
+            row.get("conn_tag"),
+            center_key,
+            stats_key,
+        )
 
     def get_points(self, bbox, filters: dict, limit: int = 2000):
-        rows = self._rpc_map_points(bbox=bbox, filters=filters, limit=limit)
-
+        requested = max(1, int(limit))
+        page_size = min(self._page_size, requested)
         out = []
-        for r in rows:
-            out.append({
-                "group_id": r.get("group_id"),
-                "provider": r.get("provider"),
-                "conn_tag": r.get("conn_tag"),
-                "timestamp": _iso(r.get("timestamp")),
-                "center": r.get("center"),
-                "stats": r.get("stats") or {},
-            })
+        seen = set()
+        offset = 0
+        total = None
+        logged_paging = False
+
+        while len(out) < requested:
+            remaining = requested - offset
+            if total is not None:
+                remaining = min(remaining, total - offset)
+            if remaining <= 0:
+                break
+
+            batch_size = min(page_size, remaining)
+            rows, page_total = self._rpc_map_points_page(
+                bbox=bbox,
+                filters=filters,
+                limit=requested,
+                offset=offset,
+                page_limit=batch_size,
+            )
+            if total is None and page_total is not None:
+                total = page_total
+            if not logged_paging and total is not None and total > page_size:
+                print(
+                    "[supabase] paging rpc_map_points:",
+                    f"requested={requested}",
+                    f"total={total}",
+                    f"page_size={page_size}",
+                )
+                logged_paging = True
+            if not rows:
+                break
+
+            for r in rows:
+                normalized = self._normalize_point_row(r)
+                key = self._point_key(normalized)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(normalized)
+                if len(out) >= requested:
+                    break
+
+            offset += len(rows)
+            if len(rows) < batch_size:
+                break
+
         return out
 
     def get_hexes(self, res: int, bbox, filters: dict):

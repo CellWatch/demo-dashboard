@@ -18,6 +18,11 @@ const HEX_ZOOM_MAX = 14.0
 const HEX_MAX_CELLS = 6000
 
 const MAX_FETCH = 20000
+const PROVIDER_BUCKET_ALIASES = {
+  'AT&T': ['at&t', 'att'],
+  'T-Mobile': ['t-mobile', 'tmobile', 't-mobile spacex'],
+  'Verizon': ['verizon', 'verizon wireless']
+}
 
 const PALETTE = {
   green: '#1E5638',
@@ -41,6 +46,15 @@ const TYPE_COLORS = {
   download: { badgeBg: PALETTE.blueLight, badgeText: PALETTE.blueDark, tintBg: PALETTE.blueLight, tintBorder: PALETTE.blue, bubble: PALETTE.blueDark, outline: PALETTE.blueDark, fill: PALETTE.blue },
   latency: { badgeBg: PALETTE.orangeLight, badgeText: PALETTE.orangeDark, tintBg: PALETTE.orangeLight, tintBorder: PALETTE.orange, bubble: PALETTE.orangeDark, outline: PALETTE.orangeDark, fill: PALETTE.orange },
   default: { badgeBg: PALETTE.greyLight, badgeText: PALETTE.greyDark, tintBg: PALETTE.greyLight, tintBorder: PALETTE.grey, bubble: PALETTE.greyDark, outline: PALETTE.greyDark, fill: PALETTE.grey }
+}
+
+function uniq(items) {
+  return [...new Set((items || []).filter((item) => item != null && item !== ''))]
+}
+
+function toFiniteNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : null
 }
 
 const emptyFC = () => ({ type: 'FeatureCollection', features: [] })
@@ -116,6 +130,56 @@ function normalizeProviderBucket(provider) {
   if (p.includes('t-mobile') || p.includes('tmobile')) return 'T-Mobile'
   if (p.includes('verizon')) return 'Verizon'
   return 'Other'
+}
+
+function buildTypeFilterPlans(typeFilters) {
+  if (typeFilters?.all) return [{}]
+
+  const enabled = ['upload', 'download', 'latency'].filter((key) => typeFilters?.[key]?.enabled)
+  if (!enabled.length) return [{}]
+
+  const typeParamKeys = {
+    upload: ['ul_min', 'ul_max'],
+    download: ['dl_min', 'dl_max'],
+    latency: ['lat_min', 'lat_max']
+  }
+
+  return enabled.map((key) => {
+    const cfg = typeFilters?.[key] || {}
+    const [minKey, maxKey] = typeParamKeys[key]
+    const threshold = toFiniteNumber(cfg.threshold)
+
+    if (cfg.mode === 'below' && threshold != null) {
+      return { [maxKey]: threshold }
+    }
+    if (cfg.mode === 'above' && threshold != null) {
+      return { [minKey]: threshold }
+    }
+    return { [minKey]: 0 }
+  })
+}
+
+function buildPointQueryPlans({ bbox, limit, typeFilters, connTypes, providers, dateBounds }) {
+  const base = { bbox, limit }
+
+  const selectedConn = uniq(connTypes)
+  if (selectedConn.length) base.conn = selectedConn.join(',')
+
+  const selectedProviders = uniq(providers)
+  if (selectedProviders.length && !selectedProviders.includes('Other')) {
+    const rawProviders = uniq(selectedProviders.flatMap((bucket) => PROVIDER_BUCKET_ALIASES[bucket] || []))
+    if (rawProviders.length) base.providers = rawProviders.join(',')
+  }
+
+  if (dateBounds?.start instanceof Date && !Number.isNaN(dateBounds.start.getTime())) {
+    base.from = dateBounds.start.toISOString()
+  }
+  if (dateBounds?.end instanceof Date && !Number.isNaN(dateBounds.end.getTime())) {
+    base.to = dateBounds.end.toISOString()
+  }
+
+  const plans = buildTypeFilterPlans(typeFilters).map((branch) => ({ ...base, ...branch }))
+  return uniq(plans.map((plan) => JSON.stringify(plan))).map((plan) => JSON.parse(plan))
 }
 
 function extractStats(row) {
@@ -227,6 +291,65 @@ function rowsToPointFeatures(rows) {
     })
   }
   return { type: 'FeatureCollection', features }
+}
+
+function pointRowKey(row) {
+  if (row?.group_id) return `group:${row.group_id}`
+  return JSON.stringify([
+    row?.timestamp ?? '',
+    row?.provider ?? '',
+    row?.conn_tag ?? '',
+    row?.center ?? null,
+    row?.stats ?? null
+  ])
+}
+
+function mapApiPointToRow(p) {
+  const center = Array.isArray(p?.center) ? p.center : null
+  const lon = center && center.length === 2 ? Number(center[0]) : NaN
+  const lat = center && center.length === 2 ? Number(center[1]) : NaN
+
+  const statsObj = (p?.stats && typeof p.stats === 'object') ? p.stats : {}
+
+  const down = Number(statsObj.down_mbps ?? statsObj.dl_mbps)
+  const up = Number(statsObj.up_mbps ?? statsObj.ul_mbps)
+  const ping = Number(statsObj.ping_ms ?? statsObj.rtt_ms ?? statsObj.ping)
+  const jit = Number(statsObj.jitter_ms)
+  const loss = Number(statsObj.loss_pct)
+  const latency = (Number.isFinite(ping) || Number.isFinite(jit) || Number.isFinite(loss))
+    ? {
+        ping_ms: Number.isFinite(ping) ? ping : null,
+        ping: Number.isFinite(ping) ? ping : null,
+        rtt_ms: Number.isFinite(ping) ? ping : null,
+        jitter_ms: Number.isFinite(jit) ? jit : null,
+        loss_pct: Number.isFinite(loss) ? loss : null,
+      }
+    : null
+
+  const tests = {
+    download: Number.isFinite(down) ? { mbps: down } : null,
+    upload: Number.isFinite(up) ? { mbps: up } : null,
+    latency,
+  }
+
+  const row = {
+    id: p.group_id,
+    group_id: p.group_id ?? null,
+    provider: p.provider ?? null,
+    timestamp: p.timestamp ?? null,
+    conn_tag: p.conn_tag ?? 'Other',
+    lat,
+    lon,
+    stats: statsObj,
+    tests,
+  }
+
+  return {
+    ...row,
+    __stats: extractStats(row),
+    __conn: row.conn_tag ?? 'Other',
+    __providerBucket: normalizeProviderBucket(row.provider),
+  }
 }
 
 
@@ -589,6 +712,7 @@ export default function HexMap({
 }) {
   const mapEl = useRef(null)
   const mapRef = useRef(null)
+  const fetchViewportRowsRef = useRef(null)
 
   const [rowsAll, setRowsAll] = useState([])
   const [mapReady, setMapReady] = useState(false)
@@ -842,93 +966,66 @@ export default function HexMap({
       const b = map.getBounds()
       const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth()
       const bbox = `${west},${south},${east},${north}`
+      const requestPlans = buildPointQueryPlans({
+        bbox,
+        limit: MAX_FETCH,
+        typeFilters,
+        connTypes,
+        providers,
+        dateBounds
+      })
 
       if (debug) {
         console.groupCollapsed('[HexMap] fetchViewportRows')
         console.log('bbox:', bbox)
         console.log('bounds:', { west, south, east, north })
-        console.log('limit:', MAX_FETCH)
+        console.log('requestPlans:', requestPlans)
         console.groupEnd()
       }
 
-      let json
       try {
-        json = await apiGet('/api/map/points', { bbox, limit: MAX_FETCH })
+        const responses = await Promise.all(
+          requestPlans.map((params) => apiGet('/api/map/points', params))
+        )
+        const deduped = []
+        const seen = new Set()
+
+        for (const json of responses) {
+          const points = Array.isArray(json?.points) ? json.points : []
+          for (const point of points) {
+            const key = pointRowKey(point)
+            if (seen.has(key)) continue
+            seen.add(key)
+            deduped.push(point)
+          }
+        }
+
+        const mapped = deduped.map(mapApiPointToRow)
+
+        if (debug && deduped[0]) {
+          console.log('[p0 keys]', Object.keys(deduped[0] || {}))
+          console.log('[p0.stats keys]', Object.keys(deduped[0]?.stats || {}))
+          console.log('[p0.stats json]', JSON.stringify(deduped[0]?.stats || {}, null, 2))
+          console.log('[p0 json]', JSON.stringify(deduped[0] || {}, null, 2))
+        }
+
+        if (debug) {
+          const ok = mapped.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon)).length
+          console.log(`[HexMap] merged ${deduped.length} rows across ${requestPlans.length} request(s); ${ok} have valid lat/lon`)
+          console.log('[mapped0]', mapped[0])
+        }
+
+        return mapped
       } catch (e) {
         console.error('[HexMap] /api/map/points failed:', e)
         return []
       }
-
-      const points = Array.isArray(json?.points) ? json.points : []
-
-      if (debug && points[0]) {
-        console.log('[p0 keys]', Object.keys(points[0] || {}))
-        console.log('[p0.stats keys]', Object.keys(points[0]?.stats || {}))
-        console.log('[p0.stats json]', JSON.stringify(points[0]?.stats || {}, null, 2))
-        console.log('[p0 json]', JSON.stringify(points[0] || {}, null, 2))
-      }
-
-      const mapped = points.map((p) => {
-        const center = Array.isArray(p?.center) ? p.center : null
-        const lon = center && center.length === 2 ? Number(center[0]) : NaN
-        const lat = center && center.length === 2 ? Number(center[1]) : NaN
-
-        const statsObj = (p?.stats && typeof p.stats === 'object') ? p.stats : {}
-
-        const down = Number(statsObj.down_mbps ?? statsObj.dl_mbps)
-        const up   = Number(statsObj.up_mbps   ?? statsObj.ul_mbps)
-        const ping = Number(statsObj.ping_ms ?? statsObj.rtt_ms ?? statsObj.ping)
-        const jit  = Number(statsObj.jitter_ms)
-        const loss = Number(statsObj.loss_pct)
-        const latency = (Number.isFinite(ping) || Number.isFinite(jit) || Number.isFinite(loss))
-            ? {
-                ping_ms: Number.isFinite(ping) ? ping : null,
-                ping:    Number.isFinite(ping) ? ping : null,
-                rtt_ms:  Number.isFinite(ping) ? ping : null,
-                jitter_ms: Number.isFinite(jit)  ? jit  : null,
-                loss_pct:  Number.isFinite(loss) ? loss : null,
-              }
-            : null
-
-        const tests = {
-          download: Number.isFinite(down) ? { mbps: down } : null,
-          upload:   Number.isFinite(up)   ? { mbps: up }   : null,
-          latency,
-        }
-
-        const row = {
-          id: p.group_id,
-          group_id: p.group_id ?? null,
-          provider: p.provider ?? null,
-          timestamp: p.timestamp ?? null,
-          conn_tag: p.conn_tag ?? 'Other',
-          lat,
-          lon,
-
-          // keep raw stats too
-          stats: statsObj,
-          tests,
-        }
-
-        return {
-          ...row,
-          __stats: extractStats(row),
-          __conn: row.conn_tag ?? 'Other',
-          __providerBucket: normalizeProviderBucket(row.provider),
-        }
-      })
-
-      if (debug) {
-        const ok = mapped.filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lon)).length
-        console.log(`[HexMap] mapped ${mapped.length} rows; ${ok} have valid lat/lon`)
-        console.log('[mapped0]', mapped[0])
-      }
-
-      return mapped
     } finally {
       setViewportLoading(false)
     }
   }
+
+  fetchViewportRowsRef.current = fetchViewportRows
 
 
 
@@ -1090,7 +1187,7 @@ export default function HexMap({
       })
 
       map.once('idle', async () => {
-        const initialRows = await fetchViewportRows(map)
+        const initialRows = await (fetchViewportRowsRef.current?.(map) ?? [])
         setRowsAll(initialRows)
         safeSetGeoJSON(map, 'points', rowsToPointFeatures(initialRows))
         redrawHexes(map, initialRows, modeRef.current)
@@ -1167,7 +1264,7 @@ export default function HexMap({
         if (raf) cancelAnimationFrame(raf)
         raf = requestAnimationFrame(async () => {
           if (!map || !map.style) { raf = 0; return }
-          const latest = await fetchViewportRows(map)
+          const latest = await (fetchViewportRowsRef.current?.(map) ?? [])
           setRowsAll(latest)
           raf = 0
         })
@@ -1191,6 +1288,29 @@ export default function HexMap({
       cellItemsRef.current = new Map()
     }
   }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !mapReady) return
+
+    let cancelled = false
+
+    ;(async () => {
+      const latest = await fetchViewportRows(map)
+      if (!cancelled) setRowsAll(latest)
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [
+    mapReady,
+    typeFilters,
+    connTypes,
+    providers,
+    dateBounds.start?.getTime() ?? null,
+    dateBounds.end?.getTime() ?? null
+  ])
 
   useEffect(() => {
     const map = mapRef.current
