@@ -10,9 +10,10 @@ export function buildQuery(params) {
   return qs ? `?${qs}` : ''
 }
 
-export async function apiGet(path, params) {
+export async function apiGet(path, params, options = {}) {
   const base = (import.meta.env.VITE_API_BASE || '').replace(/\/+$/, '')
   const url = `${base}${path}${buildQuery(params)}`
+  const { signal } = options
 
   const headers = {}
   const secret = (import.meta.env.VITE_DASHBOARD_SECRET || '').trim()
@@ -20,7 +21,7 @@ export async function apiGet(path, params) {
 
   console.log('[apiGet] ->', { base, path, url, params, hasSecret: !!secret })
 
-  const resp = await fetch(url, { headers })
+  const resp = await fetch(url, { headers, signal })
   const text = await resp.text()
 
   console.log('[apiGet] <-', { status: resp.status, ok: resp.ok, textPreview: (text || '').slice(0, 200) })

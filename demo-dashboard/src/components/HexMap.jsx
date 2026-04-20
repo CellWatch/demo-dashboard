@@ -155,6 +155,10 @@ function applySelectionColors(map, dominantType) {
   }
 }
 
+function isAbortError(error) {
+  return error?.name === 'AbortError'
+}
+
 function RightPanel({ open, onClose, data, width = 420 }) {
   const hexIdx = data?.hexIdx ?? ''
   const initialLocName = typeof data?.locationName === 'string' && data.locationName.trim()
@@ -502,6 +506,8 @@ export default function HexMap({
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const fetchViewportRowsRef = useRef(null)
+  const viewportRequestRef = useRef({ key: null, promise: null, controller: null, requestId: 0 })
+  const refreshTimeoutRef = useRef(null)
 
   const [rowsAll, setRowsAll] = useState([])
   const [mapReady, setMapReady] = useState(false)
@@ -747,34 +753,44 @@ export default function HexMap({
   }
 
   async function fetchViewportRows(map) {
+    const debug = (import.meta.env.VITE_DEBUG_MAP || '').toLowerCase() === 'true'
+    const b = map.getBounds()
+    const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth()
+    const bbox = `${west},${south},${east},${north}`
+    const requestPlans = buildPointQueryPlans({
+      bbox,
+      limit: MAX_FETCH,
+      typeFilters,
+      connTypes,
+      providers,
+      dateBounds
+    })
+    const requestKey = JSON.stringify(requestPlans)
+    const current = viewportRequestRef.current
+
+    if (current.promise && current.key === requestKey) {
+      return current.promise
+    }
+
+    if (debug) {
+      console.groupCollapsed('[HexMap] fetchViewportRows')
+      console.log('bbox:', bbox)
+      console.log('bounds:', { west, south, east, north })
+      console.log('requestPlans:', requestPlans)
+      console.groupEnd()
+    }
+
+    current.controller?.abort()
+
+    const controller = new AbortController()
+    const requestId = current.requestId + 1
     setViewportLoading(true)
 
-    const debug = (import.meta.env.VITE_DEBUG_MAP || '').toLowerCase() === 'true'
-
-    try {
-      const b = map.getBounds()
-      const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth()
-      const bbox = `${west},${south},${east},${north}`
-      const requestPlans = buildPointQueryPlans({
-        bbox,
-        limit: MAX_FETCH,
-        typeFilters,
-        connTypes,
-        providers,
-        dateBounds
-      })
-
-      if (debug) {
-        console.groupCollapsed('[HexMap] fetchViewportRows')
-        console.log('bbox:', bbox)
-        console.log('bounds:', { west, south, east, north })
-        console.log('requestPlans:', requestPlans)
-        console.groupEnd()
-      }
-
+    let promise
+    promise = (async () => {
       try {
         const responses = await Promise.all(
-          requestPlans.map((params) => apiGet('/api/map/points', params))
+          requestPlans.map((params) => apiGet('/api/map/points', params, { signal: controller.signal }))
         )
         const deduped = []
         const seen = new Set()
@@ -806,12 +822,30 @@ export default function HexMap({
 
         return mapped
       } catch (e) {
+        if (isAbortError(e)) return null
         console.error('[HexMap] /api/map/points failed:', e)
         return []
+      } finally {
+        if (viewportRequestRef.current.promise === promise) {
+          viewportRequestRef.current = {
+            key: null,
+            promise: null,
+            controller: null,
+            requestId
+          }
+          setViewportLoading(false)
+        }
       }
-    } finally {
-      setViewportLoading(false)
+    })()
+
+    viewportRequestRef.current = {
+      key: requestKey,
+      promise,
+      controller,
+      requestId
     }
+
+    return promise
   }
 
   fetchViewportRowsRef.current = fetchViewportRows
@@ -976,10 +1010,11 @@ export default function HexMap({
       })
 
       map.once('idle', async () => {
-        const initialRows = await (fetchViewportRowsRef.current?.(map) ?? [])
-        setRowsAll(initialRows)
-        safeSetGeoJSON(map, 'points', rowsToPointFeatures(initialRows))
-        redrawHexes(map, initialRows, modeRef.current)
+        const initialRows = await (fetchViewportRowsRef.current?.(map) ?? null)
+        const rows = Array.isArray(initialRows) ? initialRows : []
+        setRowsAll(rows)
+        safeSetGeoJSON(map, 'points', rowsToPointFeatures(rows))
+        redrawHexes(map, rows, modeRef.current)
         applyModeVisibility(map, modeRef.current)
         updateSelectionOverlay(map, selectedIdxRef.current)
         setMapReady(true)
@@ -1048,19 +1083,16 @@ export default function HexMap({
 
       map.on('dblclick', (e) => { e.preventDefault?.(); e.originalEvent?.preventDefault?.() })
 
-      let raf = 0
       const refresh = () => {
-        if (raf) cancelAnimationFrame(raf)
-        raf = requestAnimationFrame(async () => {
-          if (!map || !map.style) { raf = 0; return }
-          const latest = await (fetchViewportRowsRef.current?.(map) ?? [])
-          setRowsAll(latest)
-          raf = 0
-        })
+        if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current)
+        refreshTimeoutRef.current = setTimeout(async () => {
+          if (!map || !map.style) return
+          const latest = await (fetchViewportRowsRef.current?.(map) ?? null)
+          if (Array.isArray(latest)) setRowsAll(latest)
+        }, 180)
       }
 
       map.on('moveend', refresh)
-      map.on('zoomend', refresh)
 
       map.on('zoomend', () => {
         applyModeVisibility(map, modeRef.current)
@@ -1071,6 +1103,8 @@ export default function HexMap({
     map.on('error', () => {})
 
     return () => {
+      if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current)
+      viewportRequestRef.current.controller?.abort()
       try { map.remove() } catch {}
       mapRef.current = null
       setMapReady(false)
@@ -1086,7 +1120,7 @@ export default function HexMap({
 
     ;(async () => {
       const latest = await fetchViewportRows(map)
-      if (!cancelled) setRowsAll(latest)
+      if (!cancelled && Array.isArray(latest)) setRowsAll(latest)
     })()
 
     return () => {
