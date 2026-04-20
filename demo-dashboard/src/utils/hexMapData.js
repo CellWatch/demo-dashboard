@@ -13,6 +13,36 @@ function toFiniteNumber(value) {
   return Number.isFinite(n) ? n : null
 }
 
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function expandBbox(bbox, padFraction = 0.3) {
+  if (!Array.isArray(bbox) || bbox.length !== 4) return null
+  const [westRaw, southRaw, eastRaw, northRaw] = bbox.map(Number)
+  if (![westRaw, southRaw, eastRaw, northRaw].every(Number.isFinite)) return null
+
+  const width = Math.max(0, eastRaw - westRaw)
+  const height = Math.max(0, northRaw - southRaw)
+  const xPad = width * Math.max(0, Number(padFraction) || 0)
+  const yPad = height * Math.max(0, Number(padFraction) || 0)
+
+  return [
+    clamp(westRaw - xPad, -180, 180),
+    clamp(southRaw - yPad, -90, 90),
+    clamp(eastRaw + xPad, -180, 180),
+    clamp(northRaw + yPad, -90, 90)
+  ]
+}
+
+function bboxContains(outer, inner) {
+  if (!Array.isArray(outer) || !Array.isArray(inner) || outer.length !== 4 || inner.length !== 4) return false
+  return outer[0] <= inner[0] &&
+    outer[1] <= inner[1] &&
+    outer[2] >= inner[2] &&
+    outer[3] >= inner[3]
+}
+
 function aggNums(arr) {
   const vals = arr.filter(v => Number.isFinite(Number(v))).map(Number)
   if (!vals.length) return { avg: null, min: null, max: null }
@@ -76,6 +106,34 @@ function buildPointQueryPlans({ bbox, limit, typeFilters, connTypes, providers, 
 
   const plans = buildTypeFilterPlans(typeFilters).map((branch) => ({ ...base, ...branch }))
   return uniq(plans.map((plan) => JSON.stringify(plan))).map((plan) => JSON.parse(plan))
+}
+
+function buildPointQueryKey(requestPlans) {
+  return JSON.stringify((requestPlans || []).map((plan) => {
+    const { bbox, ...rest } = plan || {}
+    return rest
+  }))
+}
+
+function shouldReuseViewportData({
+  visibleBbox,
+  coverageBbox,
+  currentZoom,
+  lastZoom,
+  queryKey,
+  lastQueryKey,
+  zoomDeltaThreshold = 0.3
+}) {
+  if (!coverageBbox || !bboxContains(coverageBbox, visibleBbox)) return false
+  if (queryKey !== lastQueryKey) return false
+
+  const nextZoom = Number(currentZoom)
+  const prevZoom = Number(lastZoom)
+  if (Number.isFinite(nextZoom) && Number.isFinite(prevZoom) && Math.abs(nextZoom - prevZoom) >= zoomDeltaThreshold) {
+    return false
+  }
+
+  return true
 }
 
 function extractStats(row) {
@@ -226,15 +284,19 @@ function mapApiPointToRow(p) {
 }
 
 export {
+  bboxContains,
+  buildPointQueryKey,
   PROVIDER_BUCKET_ALIASES,
   buildPointQueryPlans,
   buildSheetData,
   buildTypeFilterPlans,
   dominantTypeFromFilters,
   dominantTypeOfItems,
+  expandBbox,
   extractStats,
   inferKindFromStats,
   mapApiPointToRow,
   normalizeProviderBucket,
-  pointRowKey
+  pointRowKey,
+  shouldReuseViewportData
 }

@@ -2,15 +2,19 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  bboxContains,
+  buildPointQueryKey,
   buildPointQueryPlans,
   buildSheetData,
   buildTypeFilterPlans,
   dominantTypeOfItems,
+  expandBbox,
   extractStats,
   inferKindFromStats,
   mapApiPointToRow,
   normalizeProviderBucket,
-  pointRowKey
+  pointRowKey,
+  shouldReuseViewportData
 } from '../src/utils/hexMapData.js'
 
 test('normalizeProviderBucket maps raw carriers into UI buckets', () => {
@@ -90,6 +94,58 @@ test('buildPointQueryPlans keeps Other provider local by omitting provider param
     limit: 100,
     conn: 'Other'
   })
+})
+
+test('expandBbox pads and clamps a viewport bbox', () => {
+  assert.deepEqual(expandBbox([-10, -20, 10, 20], 0.25), [-15, -30, 15, 30])
+  assert.deepEqual(expandBbox([-180, -80, 180, 90], 0.5), [-180, -90, 180, 90])
+})
+
+test('buildPointQueryKey ignores bbox while shouldReuseViewportData respects coverage and zoom', () => {
+  const plansA = buildPointQueryPlans({
+    bbox: '-84,33,-83,34',
+    limit: 20000,
+    typeFilters: { all: true, upload: {}, download: {}, latency: {} },
+    connTypes: ['4G', '5G'],
+    providers: ['AT&T'],
+    dateBounds: {}
+  })
+  const plansB = buildPointQueryPlans({
+    bbox: '-84.1,33,-83.1,34',
+    limit: 20000,
+    typeFilters: { all: true, upload: {}, download: {}, latency: {} },
+    connTypes: ['4G', '5G'],
+    providers: ['AT&T'],
+    dateBounds: {}
+  })
+
+  const queryKey = buildPointQueryKey(plansA)
+  assert.equal(queryKey, buildPointQueryKey(plansB))
+  assert.equal(bboxContains([-90, 30, -80, 40], [-84, 33, -83, 34]), true)
+  assert.equal(
+    shouldReuseViewportData({
+      visibleBbox: [-84, 33, -83, 34],
+      coverageBbox: [-90, 30, -80, 40],
+      currentZoom: 10.1,
+      lastZoom: 10,
+      queryKey,
+      lastQueryKey: queryKey,
+      zoomDeltaThreshold: 0.3
+    }),
+    true
+  )
+  assert.equal(
+    shouldReuseViewportData({
+      visibleBbox: [-84, 33, -83, 34],
+      coverageBbox: [-90, 30, -80, 40],
+      currentZoom: 10.5,
+      lastZoom: 10,
+      queryKey,
+      lastQueryKey: queryKey,
+      zoomDeltaThreshold: 0.3
+    }),
+    false
+  )
 })
 
 test('extractStats prefers normalized tests and falls back to raw stats', () => {

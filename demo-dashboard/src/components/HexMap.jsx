@@ -12,14 +12,18 @@ import 'mapbox-gl/dist/mapbox-gl.css'
 import * as h3 from 'h3-js'
 import { apiGet } from '../utils/api'
 import {
+  buildPointQueryKey,
   buildPointQueryPlans,
   buildSheetData,
+  bboxContains,
   dominantTypeOfItems,
+  expandBbox,
   extractStats,
   inferKindFromStats,
   mapApiPointToRow,
   normalizeProviderBucket,
-  pointRowKey
+  pointRowKey,
+  shouldReuseViewportData
 } from '../utils/hexMapData'
 
 const HEX_RES = 8
@@ -28,6 +32,8 @@ const HEX_ZOOM_MAX = 14.0
 const HEX_MAX_CELLS = 6000
 
 const MAX_FETCH = 20000
+const VIEWPORT_FETCH_PADDING = 0.3
+const VIEWPORT_FETCH_ZOOM_DELTA = 0.35
 
 const PALETTE = {
   green: '#1E5638',
@@ -506,7 +512,8 @@ export default function HexMap({
   const mapEl = useRef(null)
   const mapRef = useRef(null)
   const fetchViewportRowsRef = useRef(null)
-  const viewportRequestRef = useRef({ key: null, promise: null, controller: null, requestId: 0 })
+  const viewportRequestRef = useRef({ key: null, promise: null, controller: null, requestId: 0, coverageBbox: null, queryKey: null, zoom: null })
+  const viewportCoverageRef = useRef({ coverageBbox: null, queryKey: null, zoom: null })
   const refreshTimeoutRef = useRef(null)
 
   const [rowsAll, setRowsAll] = useState([])
@@ -756,7 +763,10 @@ export default function HexMap({
     const debug = (import.meta.env.VITE_DEBUG_MAP || '').toLowerCase() === 'true'
     const b = map.getBounds()
     const west = b.getWest(), east = b.getEast(), south = b.getSouth(), north = b.getNorth()
-    const bbox = `${west},${south},${east},${north}`
+    const visibleBbox = [west, south, east, north]
+    const coverageBbox = expandBbox(visibleBbox, VIEWPORT_FETCH_PADDING) || visibleBbox
+    const bbox = coverageBbox.join(',')
+    const currentZoom = map.getZoom()
     const requestPlans = buildPointQueryPlans({
       bbox,
       limit: MAX_FETCH,
@@ -765,17 +775,54 @@ export default function HexMap({
       providers,
       dateBounds
     })
+    const queryKey = buildPointQueryKey(requestPlans)
     const requestKey = JSON.stringify(requestPlans)
     const current = viewportRequestRef.current
+    const cachedCoverage = viewportCoverageRef.current
 
     if (current.promise && current.key === requestKey) {
       return current.promise
     }
 
+    if (current.promise && shouldReuseViewportData({
+      visibleBbox,
+      coverageBbox: current.coverageBbox,
+      currentZoom,
+      lastZoom: current.zoom,
+      queryKey,
+      lastQueryKey: current.queryKey,
+      zoomDeltaThreshold: VIEWPORT_FETCH_ZOOM_DELTA
+    })) {
+      return current.promise
+    }
+
+    if (shouldReuseViewportData({
+      visibleBbox,
+      coverageBbox: cachedCoverage.coverageBbox,
+      currentZoom,
+      lastZoom: cachedCoverage.zoom,
+      queryKey,
+      lastQueryKey: cachedCoverage.queryKey,
+      zoomDeltaThreshold: VIEWPORT_FETCH_ZOOM_DELTA
+    })) {
+      if (debug) {
+        console.log('[HexMap] reusing cached viewport coverage', {
+          visibleBbox,
+          coverageBbox: cachedCoverage.coverageBbox,
+          currentZoom,
+          lastZoom: cachedCoverage.zoom
+        })
+      }
+      return rowsAllRef.current
+    }
+
+
     if (debug) {
       console.groupCollapsed('[HexMap] fetchViewportRows')
-      console.log('bbox:', bbox)
-      console.log('bounds:', { west, south, east, north })
+      console.log('visibleBbox:', visibleBbox.join(','))
+      console.log('fetchCoverageBbox:', bbox)
+      console.log('bounds:', { west, south, east, north, zoom: currentZoom })
+      console.log('coverageContainsVisible:', bboxContains(coverageBbox, visibleBbox))
       console.log('requestPlans:', requestPlans)
       console.groupEnd()
     }
@@ -806,6 +853,11 @@ export default function HexMap({
         }
 
         const mapped = deduped.map(mapApiPointToRow)
+        viewportCoverageRef.current = {
+          coverageBbox,
+          queryKey,
+          zoom: currentZoom
+        }
 
         if (debug && deduped[0]) {
           console.log('[p0 keys]', Object.keys(deduped[0] || {}))
@@ -824,14 +876,17 @@ export default function HexMap({
       } catch (e) {
         if (isAbortError(e)) return null
         console.error('[HexMap] /api/map/points failed:', e)
-        return []
+        return null
       } finally {
         if (viewportRequestRef.current.promise === promise) {
           viewportRequestRef.current = {
             key: null,
             promise: null,
             controller: null,
-            requestId
+            requestId,
+            coverageBbox: null,
+            queryKey: null,
+            zoom: null
           }
           setViewportLoading(false)
         }
@@ -842,7 +897,10 @@ export default function HexMap({
       key: requestKey,
       promise,
       controller,
-      requestId
+      requestId,
+      coverageBbox,
+      queryKey,
+      zoom: currentZoom
     }
 
     return promise
@@ -1105,6 +1163,7 @@ export default function HexMap({
     return () => {
       if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current)
       viewportRequestRef.current.controller?.abort()
+      viewportCoverageRef.current = { coverageBbox: null, queryKey: null, zoom: null }
       try { map.remove() } catch {}
       mapRef.current = null
       setMapReady(false)
