@@ -39,7 +39,7 @@ jobs:
           echo "Has DASH?   $([ -n \"$VITE_DASHBOARD_SECRET\" ] && echo yes || echo no)"
           echo "Has MAPBOX? $([ -n \"$VITE_MAPBOX_TOKEN\" ] && echo yes || echo no)"
         env:
-          VITE_API_BASE: https://demo-dashboard-idtz.onrender.com
+          VITE_API_BASE: https://cellwatch-dashboard-backend-flask.onrender.com
           VITE_BASE: /demo-dashboard/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
@@ -49,7 +49,7 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_API_BASE: https://demo-dashboard-idtz.onrender.com
+          VITE_API_BASE: https://cellwatch-dashboard-backend-flask.onrender.com
           VITE_BASE: /demo-dashboard/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
