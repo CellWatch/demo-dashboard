@@ -95,7 +95,7 @@ Create `backend/.env` with values like:
 ```dotenv
 ENABLE_SUPABASE=1
 SUPABASE_URL=...
-SUPABASE_SERVICE_ROLE_KEY=...
+SUPABASE_ANON_KEY=...
 DASHBOARD_SECRET=...
 SUPABASE_RPC_PAGE_SIZE=1000
 PORT=5000
@@ -103,7 +103,7 @@ PORT=5000
 
 Notes:
 
-- `SUPABASE_SERVICE_ROLE_KEY` is preferred. `SUPABASE_ANON_KEY` also works if needed.
+- `SUPABASE_ANON_KEY` is required. The dashboard RPCs run as their owner and check `x-dashboard-secret`, so they need nothing more. Don't set `SUPABASE_SERVICE_ROLE_KEY`: it bypasses row-level security on every table, and the backend ignores it.
 - `SUPABASE_RPC_PAGE_SIZE` is optional and defaults to `1000`.
 - `DASHBOARD_SECRET` is read by both the Flask app and the Supabase repo helper.
 

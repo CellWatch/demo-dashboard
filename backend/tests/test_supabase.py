@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest import mock
 from pathlib import Path
 import sys
 
@@ -15,6 +17,28 @@ class SupabaseRepoTests(unittest.TestCase):
         repo = object.__new__(SupabaseRpcRepo)
         repo._page_size = page_size
         return repo
+
+    def test_uses_the_anon_key_even_when_a_service_role_key_is_set(self):
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_ANON_KEY": "anon-key",
+            "SUPABASE_SERVICE_ROLE_KEY": "service-key",
+            "DASHBOARD_SECRET": "dash-secret",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            repo = SupabaseRpcRepo()
+        self.assertEqual(repo.http.headers["apikey"], "anon-key")
+        self.assertEqual(repo.http.headers["Authorization"], "Bearer anon-key")
+        self.assertEqual(repo._dash, "dash-secret")
+
+    def test_requires_the_anon_key(self):
+        env = {
+            "SUPABASE_URL": "https://example.supabase.co",
+            "SUPABASE_SERVICE_ROLE_KEY": "service-key",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "SUPABASE_ANON_KEY"):
+                SupabaseRpcRepo()
 
     def test_content_range_total_parses_counts(self):
         self.assertEqual(_content_range_total('0-999/13824'), 13824)
