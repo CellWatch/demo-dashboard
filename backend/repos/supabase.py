@@ -56,15 +56,17 @@ class SupabaseRpcRepo:
         if not url:
             raise RuntimeError("SUPABASE_URL (or VITE_SUPABASE_URL) is required")
 
-        key = service or anon
+        # The dashboard RPCs run as their owner and check x-dashboard-secret, so the anon key is all
+        # they need. The service-role key bypasses row-level security on every table; never use it.
+        key = anon
         if not key:
-            raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY (recommended) or SUPABASE_ANON_KEY is required")
+            raise RuntimeError("SUPABASE_ANON_KEY (or VITE_SUPABASE_ANON_KEY) is required")
+        if service:
+            print("[supabase] SUPABASE_SERVICE_ROLE_KEY is set but not used; remove it from the environment")
 
         print("[supabase] url:", url)
-        print("[supabase] anon len:", len(anon) if anon else 0)
-        print("[supabase] service len:", len(service) if service else 0)
-        print("[supabase] using:", "service" if service else "anon")
-        print("[supabase] key len:", len(key) if key else 0)
+        print("[supabase] using: anon")
+        print("[supabase] key len:", len(key))
         
         self.base = url.rstrip("/") + "/rest/v1/rpc"
         self.http = requests.Session()
